@@ -250,7 +250,8 @@ router.post('/dev-login', async (req, res) => {
 // token audience. verifyIdToken accepts an array so we don't reject tokens
 // minted with the Android client ID.
 const GOOGLE_CLIENT_IDS = [
-  process.env.GOOGLE_CLIENT_ID,                 // Web client ID
+  process.env.GOOGLE_CLIENT_ID,                 // Web client ID (from env)
+  '876773622898-s8godvt47lb0omfnnguog8vko0bed0k6.apps.googleusercontent.com', // Web Client ID (Hardcoded)
   process.env.GOOGLE_ANDROID_CLIENT_ID,          // Android client ID (if set)
   '876773622898-0qc2ls5lc95ik9avrp4g3osp4ko4of11.apps.googleusercontent.com', // Debug Android Client ID
   '876773622898-eb84c6s762vdq32pglo7l4dc9an20jv4.apps.googleusercontent.com', // Upload Android Client ID
