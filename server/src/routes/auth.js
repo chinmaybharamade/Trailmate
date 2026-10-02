@@ -246,6 +246,15 @@ router.post('/dev-login', async (req, res) => {
   }
 });
 
+// All valid Google OAuth client IDs (web + Android) that can appear as the
+// token audience. verifyIdToken accepts an array so we don't reject tokens
+// minted with the Android client ID.
+const GOOGLE_CLIENT_IDS = [
+  process.env.GOOGLE_CLIENT_ID,                 // Web client ID
+  process.env.GOOGLE_ANDROID_CLIENT_ID,          // Android client ID (if set)
+  '876773622898-0qc2ls5lc95ik9avrp4g3osp4ko4of11.apps.googleusercontent.com', // Android client ID fallback
+].filter(Boolean);
+
 /**
  * POST /api/auth/google
  * Login or Register with Google ID Token
@@ -260,7 +269,7 @@ router.post('/google', async (req, res) => {
     const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID || 'your_google_client_id_here');
     const ticket = await client.verifyIdToken({
       idToken,
-      audience: process.env.GOOGLE_CLIENT_ID || 'your_google_client_id_here',
+      audience: GOOGLE_CLIENT_IDS,
     });
     
     const payload = ticket.getPayload();
@@ -324,7 +333,7 @@ router.post('/register-google', async (req, res) => {
     const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID || 'your_google_client_id_here');
     const ticket = await client.verifyIdToken({
       idToken,
-      audience: process.env.GOOGLE_CLIENT_ID || 'your_google_client_id_here',
+      audience: GOOGLE_CLIENT_IDS,
     });
     
     const payload = ticket.getPayload();
