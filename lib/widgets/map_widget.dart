@@ -39,6 +39,7 @@ class TrailMapWidget extends StatefulWidget {
   final VoidCallback? onSuggestionNavigate;
   final List<LatLng> sosPolyline;
   final List<NearbyPlace> nearbyPlaces;
+  final Duration? animationDuration;
 
   TrailMapWidget({
     super.key,
@@ -63,6 +64,7 @@ class TrailMapWidget extends StatefulWidget {
     this.onSuggestionNavigate,
     this.sosPolyline = const [],
     this.nearbyPlaces = const [],
+    this.animationDuration,
   });
 
   @override
@@ -91,7 +93,13 @@ class _TrailMapWidgetState extends State<TrailMapWidget> with TickerProviderStat
       final prevPos = _previousPositions[userId];
 
       if (prevPos != null && (prevPos.latitude != newPos.latitude || prevPos.longitude != newPos.longitude)) {
-        _animateMarker(userId, newPos);
+        // In driving mode the camera follows me, so animating my own marker
+        // fights the camera tween. Pin it to the raw position.
+        if (userId == widget.currentUserId && widget.isDrivingMode) {
+          _animatedPositions[userId] = newPos;
+        } else {
+          _animateMarker(userId, newPos);
+        }
       } else {
         _animatedPositions[userId] = newPos;
       }
@@ -105,7 +113,7 @@ class _TrailMapWidgetState extends State<TrailMapWidget> with TickerProviderStat
     _positionAnimControllers[userId]?.dispose();
 
     final controller = AnimationController(
-      duration: const Duration(milliseconds: 800),
+      duration: widget.animationDuration ?? const Duration(milliseconds: 1000),
       vsync: this,
     );
 
@@ -191,26 +199,28 @@ class _TrailMapWidgetState extends State<TrailMapWidget> with TickerProviderStat
     return controller.stream;
   });
 
+  Widget? _cachedTileLayer;
+
+  Widget _buildTileLayer() {
+    _cachedTileLayer ??= TileLayer(
+      urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+      userAgentPackageName: 'com.vorniity.rouniity',
+      tileProvider: const FMTCStore('mapStore').getTileProvider(),
+      keepBuffer: 2, 
+      tileUpdateTransformer: _throttleTileUpdates,
+    );
+
+    return widget.isDarkMode
+        ? ColorFiltered(colorFilter: _darkModeFilter, child: _cachedTileLayer!)
+        : _cachedTileLayer!;
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = AppColors.of(context);
 
-    // Build the tile layer
-    Widget tileLayer = TileLayer(
-      urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-      userAgentPackageName: 'com.vorniity.rouniity',
-      tileProvider: const FMTCStore('mapStore').getTileProvider(),
-      keepBuffer: 1, // Reduce texture pre-loading to save GPU memory
-      tileUpdateTransformer: _throttleTileUpdates,
-    );
-
-    // Wrap in color filter for dark mode
-    if (widget.isDarkMode) {
-      tileLayer = ColorFiltered(
-        colorFilter: _darkModeFilter,
-        child: tileLayer,
-      );
-    }
+    // Build the tile layer (cached to avoid 60fps rebuilds during marker animation)
+    final tileLayer = _buildTileLayer();
 
     // (Waypoint connector dotted lines removed since AI waypoints are now part of the route)
     final List<Polyline<Object>> waypointConnectors = [];
@@ -384,6 +394,7 @@ class _TrailMapWidgetState extends State<TrailMapWidget> with TickerProviderStat
                       rotate: true,
                       child: GoogleNavigationMarker(
                         heading: pos.speed < 1.0 ? widget.deviceHeading : pos.heading,
+                        animationDuration: widget.animationDuration,
                       ),
                     );
                   }

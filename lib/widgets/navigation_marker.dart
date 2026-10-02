@@ -6,10 +6,12 @@ import '../core/app_colors.dart';
 
 class GoogleNavigationMarker extends StatefulWidget {
   final double heading;
+  final Duration? animationDuration;
 
   GoogleNavigationMarker({
     super.key,
     required this.heading,
+    this.animationDuration,
   });
 
   @override
@@ -31,7 +33,7 @@ class _GoogleNavigationMarkerState extends State<GoogleNavigationMarker> with Ti
 
     _rotationController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 300),
+      duration: widget.animationDuration ?? const Duration(milliseconds: 300),
     );
     
     _rotationAnimation = Tween<double>(begin: widget.heading, end: widget.heading).animate(_rotationController);
@@ -47,6 +49,11 @@ class _GoogleNavigationMarkerState extends State<GoogleNavigationMarker> with Ti
   @override
   void didUpdateWidget(covariant GoogleNavigationMarker oldWidget) {
     super.didUpdateWidget(oldWidget);
+    
+    if (oldWidget.animationDuration != widget.animationDuration && widget.animationDuration != null) {
+      _rotationController.duration = widget.animationDuration;
+    }
+
     if (oldWidget.heading != widget.heading) {
       final currentAnimatedHeading = _rotationAnimation.value;
       final delta = _shortestAngleDelta(currentAnimatedHeading, widget.heading);
@@ -74,14 +81,8 @@ class _GoogleNavigationMarkerState extends State<GoogleNavigationMarker> with Ti
   @override
   Widget build(BuildContext context) {
     final colors = AppColors.of(context);
-    // We fetch the current map rotation from the camera.
-    // In flutter_map, if the map rotates counter-clockwise by X, camera.rotation is X.
-    // The visual rotation on screen must combine map rotation and heading.
-    final camera = MapCamera.of(context);
-    final mapRotation = camera.rotation; 
-    
-    // mapRotation is the map's current rotation relative to screen top.
-    // The final angle will be computed inside the AnimatedBuilder below.
+    // The marker has rotate: true in map_widget.dart, so it rotates WITH the map.
+    // We only need to rotate the chevron by the vehicle's heading relative to North.
 
     return SizedBox(
       width: 60,
@@ -132,7 +133,7 @@ class _GoogleNavigationMarkerState extends State<GoogleNavigationMarker> with Ti
           AnimatedBuilder(
             animation: _rotationAnimation,
             builder: (context, child) {
-              final double angle = (_rotationAnimation.value + mapRotation) * (math.pi / 180.0);
+              final double angle = _rotationAnimation.value * (math.pi / 180.0);
               return Transform.rotate(
                 angle: angle,
                 child: CustomPaint(

@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import '../core/constants.dart';
 
 /// User model
@@ -247,6 +248,103 @@ class AuthService {
       await _storage.write(key: AppConstants.userIdKey, value: _currentUser!.id);
       await _storage.write(key: AppConstants.userNameKey, value: _currentUser!.name);
       await _storage.write(key: AppConstants.userEmailKey, value: _currentUser!.email);
+    }
+  }
+
+  static bool _googleSignInInitialized = false;
+
+  /// Ensure GoogleSignIn is initialized exactly once (required by v7.x API).
+  Future<void> _ensureGoogleSignInInitialized() async {
+    if (_googleSignInInitialized) return;
+    await GoogleSignIn.instance.initialize(
+      serverClientId: '876773622898-s8godvt47lb0omfnnguog8vko0bed0k6.apps.googleusercontent.com',
+    );
+    _googleSignInInitialized = true;
+  }
+
+  /// Login with Google
+  Future<Map<String, dynamic>> loginWithGoogle() async {
+    try {
+      await _ensureGoogleSignInInitialized();
+      
+      final GoogleSignInAccount googleUser = await GoogleSignIn.instance.authenticate(
+        scopeHint: ['email'],
+      );
+
+      final GoogleSignInAuthentication googleAuth = googleUser.authentication;
+      final String? idToken = googleAuth.idToken;
+
+      if (idToken == null) {
+        return {'success': false, 'error': 'Failed to get Google ID token'};
+      }
+
+      final response = await http.post(
+        Uri.parse('${AppConstants.serverBaseUrl}/api/auth/google'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'idToken': idToken,
+        }),
+      );
+
+      final data = jsonDecode(response.body);
+
+      if (response.statusCode == 200) {
+        _token = data['token'];
+        _currentUser = UserModel.fromJson(data['user']);
+        await _saveCredentials();
+        return {'success': true, 'user': _currentUser};
+      } else if (response.statusCode == 202) {
+        return {
+          'success': true,
+          'requiresPhone': true,
+          'googleData': data['googleData'],
+          'idToken': idToken,
+        };
+      } else {
+        return {'success': false, 'error': data['error'] ?? 'Google login failed'};
+      }
+    } on GoogleSignInException catch (e) {
+      debugPrint('Google Sign-In exception: ${e.code} - $e');
+      if (e.code == GoogleSignInExceptionCode.canceled) {
+        return {'success': false, 'error': 'Sign in aborted'};
+      }
+      return {'success': false, 'error': 'Google Sign-In failed: ${e.code}'};
+    } catch (e) {
+      debugPrint('Google Login error: $e');
+      return {'success': false, 'error': 'Failed to connect. Please try again.'};
+    }
+  }
+
+  /// Register a new user with Google ID Token and Phone Number
+  Future<Map<String, dynamic>> registerWithGoogle({
+    required String idToken,
+    required String phone,
+    required String otp,
+  }) async {
+    try {
+      final response = await http.post(
+        Uri.parse('${AppConstants.serverBaseUrl}/api/auth/register-google'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'idToken': idToken,
+          'phone': phone,
+          'otp': otp,
+        }),
+      );
+
+      final data = jsonDecode(response.body);
+
+      if (response.statusCode == 201) {
+        _token = data['token'];
+        _currentUser = UserModel.fromJson(data['user']);
+        await _saveCredentials();
+        return {'success': true, 'user': _currentUser};
+      } else {
+        return {'success': false, 'error': data['error'] ?? 'Registration failed'};
+      }
+    } catch (e) {
+      debugPrint('Register Google error: $e');
+      return {'success': false, 'error': 'Network error. Is the server running?'};
     }
   }
 }

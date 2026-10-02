@@ -1,5 +1,6 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
+const { OAuth2Client } = require('google-auth-library');
 const User = require('../models/User');
 const Otp = require('../models/Otp');
 const { authenticate } = require('../middleware/auth');
@@ -242,6 +243,143 @@ router.post('/dev-login', async (req, res) => {
   } catch (error) {
     console.error('Dev login error:', error);
     res.status(500).json({ error: 'Dev login failed' });
+  }
+});
+
+/**
+ * POST /api/auth/google
+ * Login or Register with Google ID Token
+ */
+router.post('/google', async (req, res) => {
+  try {
+    const { idToken } = req.body;
+    if (!idToken) {
+      return res.status(400).json({ error: 'ID token is required' });
+    }
+
+    const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID || 'your_google_client_id_here');
+    const ticket = await client.verifyIdToken({
+      idToken,
+      audience: process.env.GOOGLE_CLIENT_ID || 'your_google_client_id_here',
+    });
+    
+    const payload = ticket.getPayload();
+    if (!payload) {
+      return res.status(401).json({ error: 'Invalid Google token' });
+    }
+
+    const { email, name, picture, sub: googleId } = payload;
+    const searchEmail = email.toLowerCase().trim();
+
+    let user = await User.findOne({ email: searchEmail });
+
+    if (!user) {
+      // User doesn't exist, we need their phone number to register them
+      return res.status(202).json({
+        requiresPhone: true,
+        googleData: {
+          email: searchEmail,
+          name: name || 'Google User',
+          picture,
+          googleId,
+        }
+      });
+    } else if (!user.googleId) {
+      // Link Google account to existing email user
+      user.googleId = googleId;
+      if (!user.avatar && picture) user.avatar = picture;
+      await user.save();
+    }
+
+    const token = jwt.sign(
+      { userId: user._id },
+      process.env.JWT_SECRET || 'secret',
+      { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
+    );
+
+    res.json({
+      message: 'Google login successful',
+      token,
+      user: safeUserJSON(user),
+    });
+
+  } catch (error) {
+    console.error('Google auth error:', error);
+    res.status(500).json({ error: 'Server error during Google auth' });
+  }
+});
+
+/**
+ * POST /api/auth/register-google
+ * Register a new user with Google ID Token and Phone Number
+ */
+router.post('/register-google', async (req, res) => {
+  try {
+    const { idToken, phone, otp } = req.body;
+
+    if (!idToken || !phone || !otp) {
+      return res.status(400).json({ error: 'ID token, phone, and otp are required' });
+    }
+
+    const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID || 'your_google_client_id_here');
+    const ticket = await client.verifyIdToken({
+      idToken,
+      audience: process.env.GOOGLE_CLIENT_ID || 'your_google_client_id_here',
+    });
+    
+    const payload = ticket.getPayload();
+    if (!payload) {
+      return res.status(401).json({ error: 'Invalid Google token' });
+    }
+
+    const { email, name, picture, sub: googleId } = payload;
+    const searchEmail = email.toLowerCase().trim();
+
+    // Check if user already exists
+    const existingUser = await User.findOne({
+      $or: [
+        { email: searchEmail },
+        { phone: phone }
+      ]
+    });
+
+    if (existingUser) {
+      return res.status(409).json({ error: 'Email or phone number already registered' });
+    }
+
+    // NOTE: OTP is currently verified on the frontend via Firebase Auth.
+    // In a production environment, you would receive the Firebase ID Token here and verify it using firebase-admin.
+    // For now, we trust the frontend verification.
+
+    const user = new User({
+      name: name || 'Google User',
+      email: searchEmail,
+      phone: phone.trim(),
+      googleId,
+      avatar: picture,
+    });
+    
+    await user.save();
+
+    // Cleanup mock OTPs if any
+    await Otp.deleteMany({ phone });
+
+    // Generate JWT token
+    const token = jwt.sign(
+      { userId: user._id },
+      process.env.JWT_SECRET || 'secret',
+      { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
+    );
+
+    res.status(201).json({
+      message: 'Google account created successfully',
+      token,
+      user: safeUserJSON(user),
+    });
+
+  } catch (error) {
+    console.error('Register Google error:', error);
+    res.status(500).json({ error: 'Server error during Google registration' });
   }
 });
 

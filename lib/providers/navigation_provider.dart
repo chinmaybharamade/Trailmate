@@ -589,9 +589,24 @@ class NavigationProvider extends ChangeNotifier {
     _subscriptions.add(
       _locationService.positionStream.listen((position) {
         if (_currentGroupId != null && _isNavigating && _currentUserId != null) {
+          bool _dirty = false;
+          
+          // Reject low-confidence fixes outright
+          if (position.accuracy > 30) return;
+          
+          final prevPos = _memberPositions[_currentUserId!];
+          
+          // Reject physically impossible jumps
+          if (prevPos != null) {
+            final dt = position.timestamp.difference(prevPos.timestamp).inMilliseconds / 1000.0;
+            if (dt > 0) {
+              final d = LocationService.distanceBetween(
+                prevPos.lat, prevPos.lng, position.latitude, position.longitude);
+              if (d / dt > 55) return; // ~200 km/h on a bike is a glitch
+            }
+          }
           
           // Track distance traveled
-          final prevPos = _memberPositions[_currentUserId!];
           if (prevPos != null) {
             final delta = LocationService.distanceBetween(
               prevPos.lat, prevPos.lng, position.latitude, position.longitude,
@@ -601,18 +616,29 @@ class NavigationProvider extends ChangeNotifier {
             }
           }
 
+          // Map Matching (snap to route if within 20m)
+          double displayLat = position.latitude;
+          double displayLng = position.longitude;
+          if (_routePolyline.isNotEmpty && !_isRerouting) {
+            final projection = _projectToRoute(position.latitude, position.longitude);
+            if (projection.distance < 20.0) {
+              displayLat = projection.point.latitude;
+              displayLng = projection.point.longitude;
+            }
+          }
+
           // 1. Update local user position immediately for instant UI feedback
           _memberPositions[_currentUserId!] = MemberPosition(
             userId: _currentUserId!,
             name: _currentUserName ?? 'Me',
-            lat: position.latitude,
-            lng: position.longitude,
+            lat: displayLat,
+            lng: displayLng,
             speed: position.speed * 3.6,
             heading: position.heading,
             status: _memberPositions[_currentUserId!]?.status ?? 'on-route',
             timestamp: DateTime.now(),
           );
-          notifyListeners();
+          _dirty = true;
 
           // 2. Broadcast to others (or queue if offline)
           if (!_isOffline) {
@@ -696,11 +722,14 @@ class NavigationProvider extends ChangeNotifier {
                     _lastRerouteTime = now;
                     _isRerouting = true;
                     _consecutiveOffRoute = 0;
-                    notifyListeners();
+                    _dirty = true;
                     debugPrint('[Navigation] User is ${minDistance.toStringAsFixed(1)}m off route for 3+ readings. Rerouting...');
                     _queueSpeak('Rerouting', priority: TtsPriority.normal);
                     _calculatePersonalRoute().whenComplete(() {
                       _isRerouting = false;
+                      if (_remainingDistance < 15.0) {
+                        _hasArrived = true;
+                      }
                       notifyListeners();
                     });
                   }
@@ -728,12 +757,39 @@ class NavigationProvider extends ChangeNotifier {
               
               if (_routeSteps.isNotEmpty && _currentStepIndex < _routeSteps.length) {
                 // 4b. Responsive Step Progression
+                // Advance past any steps the user has already passed.
+                // A step is "passed" if the user is closer to the next step's
+                // start location than to the current step's end location, OR
+                // if the user is within 25m of the current step's end.
+                bool advanced = true;
+                while (advanced && _currentStepIndex < _routeSteps.length - 1) {
+                  advanced = false;
+                  final currentStepData = _routeSteps[_currentStepIndex];
+                  final nextStepData = _routeSteps[_currentStepIndex + 1];
+
+                  final distToCurrentEnd = LocationService.distanceBetween(
+                    position.latitude, position.longitude,
+                    currentStepData.endLocation.latitude, currentStepData.endLocation.longitude,
+                  );
+
+                  // Advance if: within 25m of current step's end
+                  if (distToCurrentEnd < 25.0) {
+                    _currentStepIndex++;
+                    _hasSpokenApproachWarning = false;
+                    final newStep = _routeSteps[_currentStepIndex];
+                    _queueSpeak(newStep.instruction, priority: TtsPriority.normal);
+                    _updateRemainingStats();
+                    advanced = true;
+                  }
+                }
+
+                // Now calculate the live distance to the current step's end
                 final currentStepData = _routeSteps[_currentStepIndex];
                 final distToTurn = LocationService.distanceBetween(
-                  position.latitude, position.longitude, 
+                  position.latitude, position.longitude,
                   currentStepData.endLocation.latitude, currentStepData.endLocation.longitude,
                 );
-                
+
                 _distanceToNextStep = distToTurn;
 
                 // Approach warning TTS at 200m
@@ -741,18 +797,6 @@ class NavigationProvider extends ChangeNotifier {
                   _hasSpokenApproachWarning = true;
                   final nextStep = _routeSteps[_currentStepIndex + 1];
                   _queueSpeak('In ${distToTurn.round()} meters, ${nextStep.instruction}', priority: TtsPriority.normal);
-                }
-
-                // If we are within 25 meters of the turn, advance to next instruction
-                if (distToTurn < 25.0 && _currentStepIndex < _routeSteps.length - 1) {
-                  _currentStepIndex++;
-                  _hasSpokenApproachWarning = false; // Reset for next step
-                  final newStep = _routeSteps[_currentStepIndex];
-                  _distanceToNextStep = newStep.distance; // reset to full distance initially
-                  _queueSpeak(newStep.instruction, priority: TtsPriority.normal);
-
-                  // Update remaining distance/duration dynamically
-                  _updateRemainingStats();
                 }
 
                 // 4c. Arrival Detection
@@ -767,7 +811,7 @@ class NavigationProvider extends ChangeNotifier {
                           ? 'You have reached your set $destName destination.'
                           : 'You have arrived at your destination.';
                       _queueSpeak(message, priority: TtsPriority.high);
-                      notifyListeners();
+                      _dirty = true;
                     }
                   } else {
                     if (!_reachedLeader) {
@@ -780,14 +824,18 @@ class NavigationProvider extends ChangeNotifier {
                       _lastPolylineSplitPosition = null;
                       _routeSteps = [];
                       _currentStepIndex = 0;
-                      notifyListeners();
+                      _dirty = true;
                     }
                   }
                 }
 
-                notifyListeners();
+                _dirty = true;
               }
             }
+          }
+
+          if (_dirty) {
+            notifyListeners();
           }
 
           // 5. Calculate route if not done yet (e.g. initial start) — skip if offline
@@ -1625,20 +1673,20 @@ class RouteStep {
       return inst.contains('left') ? 'ramp-left' : 'ramp-right';
     }
     // Sharp turns
-    if (inst.contains('sharp') && inst.contains('left')) return 'sharp-left';
-    if (inst.contains('sharp') && inst.contains('right')) return 'sharp-right';
+    if (inst.contains('sharp left')) return 'sharp-left';
+    if (inst.contains('sharp right')) return 'sharp-right';
     // Slight / keep / bear
-    if ((inst.contains('slight') || inst.contains('keep') || inst.contains('bear')) && inst.contains('left')) {
+    if (inst.contains('slight left') || inst.contains('keep left') || inst.contains('bear left')) {
       return 'slight-left';
     }
-    if ((inst.contains('slight') || inst.contains('keep') || inst.contains('bear')) && inst.contains('right')) {
+    if (inst.contains('slight right') || inst.contains('keep right') || inst.contains('bear right')) {
       return 'slight-right';
     }
-    // Normal turns
-    if (inst.contains('turn left') || (inst.contains('left') && !inst.contains('straight'))) {
+    // Normal turns — use explicit phrases to avoid matching road names
+    if (inst.contains('turn left') || inst.contains('take left') || inst.contains('take a left')) {
       return 'turn-left';
     }
-    if (inst.contains('turn right') || (inst.contains('right') && !inst.contains('straight'))) {
+    if (inst.contains('turn right') || inst.contains('take right') || inst.contains('take a right')) {
       return 'turn-right';
     }
     // Default

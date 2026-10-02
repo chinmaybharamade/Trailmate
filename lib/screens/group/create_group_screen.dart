@@ -11,6 +11,7 @@ import '../../providers/group_provider.dart';
 import '../../services/ola_maps_service.dart';
 import '../../services/location_service.dart';
 import '../../utils/polyline_decoder.dart';
+import '../../widgets/skeleton_loader.dart';
 import 'route_style_screen.dart';
 
 class CreateGroupScreen extends StatefulWidget {
@@ -32,6 +33,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
   String _selectedMode = 'driving';
   String _travelType = 'group';
   bool _isGeocoding = false;
+  bool _isLoadingRoute = false;
 
   // Live route data — populated after geocoding
   LatLng? _originLatLng;
@@ -95,6 +97,8 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
   Future<void> _geocodeAndPreview() async {
     if (_fromController.text.trim().isEmpty || _toController.text.trim().isEmpty) return;
 
+    setState(() { _isLoadingRoute = true; });
+
     try {
       if (mounted) _mapsService.setToken(context.read<AuthProvider>().token ?? '');
 
@@ -149,17 +153,21 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
           debugPrint('[CreateGroup] Directions fetch failed: $e');
         }
 
-        setState(() {
-          _originLatLng = LatLng(origin.lat!, origin.lng!);
-          _destLatLng = LatLng(destination.lat!, destination.lng!);
-          _originLabel = oLabel;
-          _destLabel = dLabel;
-          _routeDistance = distStr;
-          _routeTime = timeStr;
-        });
+        if (mounted) {
+          setState(() {
+            _originLatLng = LatLng(origin.lat!, origin.lng!);
+            _destLatLng = LatLng(destination.lat!, destination.lng!);
+            _originLabel = oLabel;
+            _destLabel = dLabel;
+            _routeDistance = distStr;
+            _routeTime = timeStr;
+          });
+        }
       }
     } catch (e) {
       debugPrint('[CreateGroup] Preview geocode error: $e');
+    } finally {
+      if (mounted) setState(() { _isLoadingRoute = false; });
     }
   }
 
@@ -191,6 +199,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
           builder: (context) => RouteStyleScreen(
             tripName: tripName,
             transportMode: _selectedMode,
+            travelType: _travelType,
             origin: origin,
             destination: destination,
           ),
@@ -491,18 +500,54 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
               borderRadius: BorderRadius.circular(12),
               border: Border.all(color: colors.borderColor),
             ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: [
-                _buildRouteStatItem(
-                  _selectedMode == 'driving' ? Icons.directions_car_rounded
-                  : _selectedMode == 'two_wheeler' ? Icons.two_wheeler_rounded
-                  : Icons.directions_walk_rounded, 
-                  _routeDistance ?? '—', 'Distance', colors
-                ),
-                _buildRouteStatItem(Icons.schedule_rounded, _routeTime ?? '—', 'Est. Time', colors),
-              ],
-            ),
+            child: _isLoadingRoute
+                ? Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(_selectedMode == 'driving' ? Icons.directions_car_rounded
+                              : _selectedMode == 'two_wheeler' ? Icons.two_wheeler_rounded
+                              : Icons.directions_walk_rounded, color: colors.accentPrimary, size: 20),
+                          const SizedBox(width: 8),
+                          const Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              SkeletonLine(width: 60, height: 16),
+                              SizedBox(height: 4),
+                              SkeletonLine(width: 40, height: 10),
+                            ],
+                          ),
+                        ],
+                      ),
+                      Row(
+                        children: [
+                          Icon(Icons.schedule_rounded, color: colors.accentPrimary, size: 20),
+                          const SizedBox(width: 8),
+                          const Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              SkeletonLine(width: 60, height: 16),
+                              SizedBox(height: 4),
+                              SkeletonLine(width: 40, height: 10),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ],
+                  )
+                : Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: [
+                      _buildRouteStatItem(
+                        _selectedMode == 'driving' ? Icons.directions_car_rounded
+                        : _selectedMode == 'two_wheeler' ? Icons.two_wheeler_rounded
+                        : Icons.directions_walk_rounded, 
+                        _routeDistance ?? '—', 'Distance', colors
+                      ),
+                      _buildRouteStatItem(Icons.schedule_rounded, _routeTime ?? '—', 'Est. Time', colors),
+                    ],
+                  ),
           ),
         ],
       ],
@@ -632,7 +677,10 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
   Widget _buildTravelModeCard(String modeValue, String title, String subtitle, IconData icon, AppColorScheme colors) {
     final isSelected = _selectedMode == modeValue;
     return GestureDetector(
-      onTap: () => setState(() => _selectedMode = modeValue),
+      onTap: () {
+        setState(() => _selectedMode = modeValue);
+        _geocodeAndPreview();
+      },
       child: Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
@@ -776,7 +824,9 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
             borderRadius: BorderRadius.circular(16),
             border: Border.all(color: colors.borderColor),
           ),
-          child: hasRoute ? _buildLiveMapPreview(colors) : _buildEmptyMapPlaceholder(colors),
+          child: hasRoute 
+              ? (_isLoadingRoute ? const SkeletonBox(height: 200, borderRadius: 16) : _buildLiveMapPreview(colors))
+              : _buildEmptyMapPlaceholder(colors),
         ),
       ],
     );

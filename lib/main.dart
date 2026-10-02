@@ -73,7 +73,8 @@ class RoUniityApp extends StatelessWidget {
           case '/login':
             return MaterialPageRoute(builder: (_) => LoginScreen(), settings: settings);
           case '/register':
-            return MaterialPageRoute(builder: (_) => RegisterScreen(), settings: settings);
+            final googleData = settings.arguments as Map<String, dynamic>?;
+            return MaterialPageRoute(builder: (_) => RegisterScreen(googleData: googleData), settings: settings);
           case '/home':
             return MaterialPageRoute(builder: (_) => HomeScreen(), settings: settings);
           case '/create-group':

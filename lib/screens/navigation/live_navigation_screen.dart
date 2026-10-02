@@ -23,6 +23,8 @@ import '../../widgets/compass_speedometer.dart';
 import '../../widgets/quick_stops_bar.dart';
 import 'arrival_screen.dart';
 import 'auto_sos_countdown_screen.dart';
+import 'package:in_app_review/in_app_review.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 import '../../core/app_colors.dart';
 import '../../core/theme.dart';
 
@@ -53,6 +55,9 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
   StreamSubscription? _compassSub;
   StreamSubscription? _fallSignalSub;
   double _deviceHeading = 0.0;
+  DateTime? _lastFixTime;
+  Duration _fixInterval = const Duration(milliseconds: 1000);
+  double _currentDesiredZoom = 18.0;
   bool _hasCalculatedPreview = false;
   bool _userPannedMap = false; // Track if user dragged the map
   NavigationProvider? _navProvider;
@@ -74,6 +79,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
   @override
   void initState() {
     super.initState();
+    WakelockPlus.enable();
     _mapController = MapController();
     
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -96,10 +102,21 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
       // Listen to position updates to auto-follow user with SMOOTH animation
       _positionSub = nav.locationService.positionStream.listen((pos) {
         if (_navState == NavigationState.active && mounted && !_userPannedMap) {
+          final now = DateTime.now();
+          if (_lastFixTime != null) {
+            final delta = now.difference(_lastFixTime!);
+            if (delta.inMilliseconds > 200 && delta.inMilliseconds < 5000) {
+              _fixInterval = Duration(
+                milliseconds: (_fixInterval.inMilliseconds * 0.7 + delta.inMilliseconds * 0.3).round(),
+              );
+            }
+          }
+          _lastFixTime = now;
+
           final speedKmh = pos.speed * 3.6;
           
-          // Speed-based auto-zoom
-          double targetZoom = _calculateZoomForSpeed(speedKmh);
+          // Disable speed-based auto-zoom based on user feedback to prevent disturbing zoom animations
+          double targetZoom = _mapController.camera.zoom;
           
           if (_mapOrientation == MapOrientation.headingUp) {
             double heading = pos.heading;
@@ -111,12 +128,16 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
               LatLng(pos.latitude, pos.longitude),
               targetZoom,
               -heading,
+              continuous: true,
+              duration: _fixInterval,
             );
           } else if (_mapOrientation == MapOrientation.northUp) {
             _animatedMapMove(
               LatLng(pos.latitude, pos.longitude),
               targetZoom,
               0.0,
+              continuous: true,
+              duration: _fixInterval,
             );
           }
           // In free mode, don't follow
@@ -140,12 +161,20 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
     });
   }
 
-  /// Calculate zoom level based on driving speed
+  /// Calculate zoom level based on driving speed (with hysteresis to prevent flip-flopping)
   double _calculateZoomForSpeed(double speedKmh) {
-    if (speedKmh > 80) return 15.0;      // Highway: see far ahead
-    if (speedKmh > 50) return 16.0;      // Fast road
-    if (speedKmh > 25) return 17.0;      // City driving
-    return 18.0;                          // Slow/stationary: detailed view
+    if (_currentDesiredZoom == 18.0) {
+      if (speedKmh > 30) _currentDesiredZoom = 17.0;
+    } else if (_currentDesiredZoom == 17.0) {
+      if (speedKmh > 55) _currentDesiredZoom = 16.0;
+      else if (speedKmh < 20) _currentDesiredZoom = 18.0;
+    } else if (_currentDesiredZoom == 16.0) {
+      if (speedKmh > 85) _currentDesiredZoom = 15.0;
+      else if (speedKmh < 45) _currentDesiredZoom = 17.0;
+    } else if (_currentDesiredZoom == 15.0) {
+      if (speedKmh < 75) _currentDesiredZoom = 16.0;
+    }
+    return _currentDesiredZoom;
   }
 
   void _fitRouteBounds(List<LatLng> polyline) {
@@ -156,11 +185,12 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
     _mapController.rotate(0);
   }
 
-  void _animatedMapMove(LatLng destLocation, double destZoom, double destRotation) {
-    _mapAnimController?.dispose(); // Cancel any existing animation
+  void _animatedMapMove(LatLng destLocation, double destZoom, double destRotation, {bool continuous = false, Duration? duration}) {
+    _mapAnimController?.stop(); // Stop before reassignment
+    _mapAnimController?.dispose();
     
     _mapAnimController = AnimationController(
-      duration: Duration(milliseconds: 500), // Smooth 500ms glide
+      duration: duration ?? const Duration(milliseconds: 500), // Smooth glide
       vsync: this,
     );
 
@@ -181,7 +211,10 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
     }
     final rotTween = Tween<double>(begin: beginRot, end: endRot);
 
-    final animation = CurvedAnimation(parent: _mapAnimController!, curve: Curves.easeInOut);
+    final animation = CurvedAnimation(
+      parent: _mapAnimController!, 
+      curve: continuous ? Curves.linear : Curves.easeInOut,
+    );
 
     _mapAnimController!.addListener(() {
       _mapController.move(
@@ -192,9 +225,8 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
     });
 
     _mapAnimController!.addStatusListener((status) {
-      if (status == AnimationStatus.completed || status == AnimationStatus.dismissed) {
-        _mapAnimController?.dispose();
-        _mapAnimController = null;
+      if (status == AnimationStatus.completed) {
+        // Leave disposal to the next call to prevent double disposal
       }
     });
 
@@ -208,6 +240,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
     _fallSignalSub?.cancel();
     _mapAnimController?.dispose();
     _navProvider?.removeListener(_onNavProviderChanged);
+    WakelockPlus.disable();
     super.dispose();
   }
 
@@ -548,6 +581,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
                   currentUserId: currentUserId,
                   leaderId: leaderId,
                   isDrivingMode: _navState == NavigationState.active,
+                  animationDuration: _fixInterval,
                   initialRouteBearing: navProvider.initialRouteBearing,
                   deviceHeading: _deviceHeading,
                   aiWaypoints: groupProvider.currentGroup?.route.aiWaypoints ?? [],
@@ -589,8 +623,9 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
                             navProvider.isRerouting
                                 ? ReroutingBanner()
                                 : DirectionsBanner(
-                                    currentStep: navProvider.upcomingStep ?? navProvider.currentStep,
-                                    upcomingStep: navProvider.nextUpcomingStep,
+                                    currentStep: navProvider.currentStep,
+                                    upcomingStep: navProvider.upcomingStep,
+                                    nextAfterUpcomingStep: navProvider.nextUpcomingStep,
                                     distanceToNextManeuver: navProvider.distanceToNextStep,
                                     detourCurrentStep: navProvider.detourSteps.isNotEmpty ? navProvider.detourSteps.first : null,
                                     distanceToDetourManeuver: navProvider.detourSteps.isNotEmpty ? navProvider.detourSteps.first.distance.toDouble() : 0.0,
@@ -888,7 +923,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
                         alignment: isLandscape ? Alignment.bottomRight : Alignment.bottomCenter,
                         child: Padding(
                           padding: EdgeInsets.only(
-                            bottom: isLandscape ? 16 : 230,
+                            bottom: isLandscape ? 16 : 170, // Adjusted after removing mode selector
                             left: isLandscape ? 380 : 0, // Avoid bottom sheet
                           ),
                           child: QuickStopsBar(
@@ -912,7 +947,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
                         alignment: isLandscape ? Alignment.bottomRight : Alignment.bottomCenter,
                         child: Padding(
                           padding: EdgeInsets.only(
-                            bottom: isLandscape ? 80 : 290, // Above the quick stops bar
+                            bottom: isLandscape ? 80 : 230, // Above the quick stops bar
                             left: isLandscape ? 380 : 0,
                           ),
                           child: SizedBox(
@@ -959,19 +994,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
                             child: Column(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Padding(
-                                  padding: const EdgeInsets.only(bottom: 12.0),
-                                  child: Row(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      _buildModeIcon('driving', Icons.directions_car_rounded, navProvider),
-                                      const SizedBox(width: 8),
-                                      _buildModeIcon('two_wheeler', Icons.two_wheeler_rounded, navProvider),
-                                      const SizedBox(width: 8),
-                                      _buildModeIcon('walking', Icons.directions_walk_rounded, navProvider),
-                                    ],
-                                  ),
-                                ),
+
                                 TripBottomSheet(
                                   distanceRemaining: navProvider.remainingDistance > 0 ? navProvider.remainingDistance : navProvider.routeDistance,
                                   durationRemaining: navProvider.remainingDuration > 0 ? navProvider.remainingDuration : navProvider.routeDuration,
@@ -979,12 +1002,22 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
                                   memberPositions: navProvider.memberPositions,
                                   currentUserId: currentUserId,
                                   isLandscape: isLandscape,
-                                  onExit: () {
+                                  onExit: () async {
                                     navProvider.stopNavigation();
                                     setState(() {
                                        _navState = NavigationState.browsing;
                                        _mapOrientation = MapOrientation.free;
                                     });
+                                    
+                                    // Request In-App Review
+                                    try {
+                                      final InAppReview inAppReview = InAppReview.instance;
+                                      if (await inAppReview.isAvailable()) {
+                                        await inAppReview.requestReview();
+                                      }
+                                    } catch (e) {
+                                      debugPrint('In-App Review error: $e');
+                                    }
                                   },
                                   onMemberTap: (userId) {
                                     final pos = navProvider.memberPositions[userId];
@@ -1006,6 +1039,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
                 Builder(
                   builder: (context) {
                     final size = MediaQuery.sizeOf(context);
+                    final colors = AppColors.of(context);
                     final isLandscape = size.width > size.height && size.width > 480;
                     return Stack(
                       children: [
@@ -1024,7 +1058,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
                                   width: isLandscape ? 350 : double.infinity,
                                   padding: const EdgeInsets.all(16),
                                   decoration: BoxDecoration(
-                                    color: Colors.white,
+                                    color: colors.cardColor,
                                     borderRadius: BorderRadius.circular(20),
                                     boxShadow: [
                                       BoxShadow(color: Colors.black.withValues(alpha: 0.15), blurRadius: 15, offset: Offset(0, 5))
@@ -1033,18 +1067,6 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
                                   child: Column(
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
-                                      // Mode Switcher
-                                      Row(
-                                        mainAxisAlignment: MainAxisAlignment.center,
-                                        children: [
-                                          _buildModeIcon('driving', Icons.directions_car_rounded, navProvider),
-                                          const SizedBox(width: 8),
-                                          _buildModeIcon('two_wheeler', Icons.two_wheeler_rounded, navProvider),
-                                          const SizedBox(width: 8),
-                                          _buildModeIcon('walking', Icons.directions_walk_rounded, navProvider),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 16),
                                       Row(
                                         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                                         children: [

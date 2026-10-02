@@ -46,6 +46,7 @@ class _ManeuverInfo {
 class DirectionsBanner extends StatelessWidget {
   final RouteStep? currentStep;
   final RouteStep? upcomingStep;
+  final RouteStep? nextAfterUpcomingStep;
   final double distanceToNextManeuver;
 
   final RouteStep? detourCurrentStep;
@@ -56,6 +57,7 @@ class DirectionsBanner extends StatelessWidget {
     super.key,
     required this.currentStep,
     this.upcomingStep,
+    this.nextAfterUpcomingStep,
     this.distanceToNextManeuver = 0.0,
     this.detourCurrentStep,
     this.distanceToDetourManeuver = 0.0,
@@ -69,14 +71,8 @@ class DirectionsBanner extends StatelessWidget {
     final m = maneuverType.toLowerCase().trim();
     final inst = instruction.toLowerCase();
 
-    // 1. Try resolving from the instruction text FIRST — it's the human-readable
-    // string and is what TTS speaks, so it's the source of truth when it
-    // disagrees with the API's maneuverType field.
-    final fromInstruction = _resolveFromInstruction(inst);
-    if (fromInstruction != null) return fromInstruction;
-
-    // 2. Fallback: API maneuver type (only reached if instruction had no
-    // directional keyword — e.g. bare "Continue")
+    // 1. Primary: API maneuver type. This is structured data and much more reliable
+    // than scraping the english instruction text which might contain landmarks.
     if (m.isNotEmpty) {
       // Arrival
       if (m.contains('arrive') || m.contains('destination')) {
@@ -129,6 +125,10 @@ class DirectionsBanner extends StatelessWidget {
       }
     }
 
+    // 2. Fallback: Parse the instruction text if maneuverType was missing or unrecognizable
+    final fromInstruction = _resolveFromInstruction(inst);
+    if (fromInstruction != null) return fromInstruction;
+
     return ManeuverDirection.straight;
   }
 
@@ -163,23 +163,22 @@ class DirectionsBanner extends StatelessWidget {
     // Merge
     if (inst.contains('merge')) return ManeuverDirection.merge;
     // Sharp turns
-    if (inst.contains('sharp') && inst.contains('left')) return ManeuverDirection.sharpLeft;
-    if (inst.contains('sharp') && inst.contains('right')) return ManeuverDirection.sharpRight;
+    if (inst.contains('sharp left')) return ManeuverDirection.sharpLeft;
+    if (inst.contains('sharp right')) return ManeuverDirection.sharpRight;
     // Slight / keep / bear
-    if ((inst.contains('slight') || inst.contains('keep') || inst.contains('bear')) && inst.contains('left')) {
+    if (inst.contains('slight left') || inst.contains('keep left') || inst.contains('bear left')) {
       return ManeuverDirection.slightLeft;
     }
-    if ((inst.contains('slight') || inst.contains('keep') || inst.contains('bear')) && inst.contains('right')) {
+    if (inst.contains('slight right') || inst.contains('keep right') || inst.contains('bear right')) {
       return ManeuverDirection.slightRight;
     }
     // Normal left/right
-    if (inst.contains('left')) {
+    if (inst.contains('turn left') || inst.contains('take left') || inst.contains('take a left') || inst.startsWith('left')) {
       return ManeuverDirection.turnLeft;
     }
-    if (inst.contains('right')) {
+    if (inst.contains('turn right') || inst.contains('take right') || inst.contains('take a right') || inst.startsWith('right')) {
       return ManeuverDirection.turnRight;
     }
-
     return null;
   }
 
@@ -379,33 +378,6 @@ class DirectionsBanner extends StatelessWidget {
     final colors = AppColors.of(context);
     if (currentStep == null) return const SizedBox.shrink();
 
-    final displayDistance = distanceToNextManeuver > 0
-        ? distanceToNextManeuver
-        : currentStep!.distance;
-
-    // Show the UPCOMING maneuver (what happens at the end of current segment)
-    final RouteStep displayStep = upcomingStep ?? currentStep!;
-    
-    final direction = _resolveDirection(
-      displayStep.maneuverType,
-      displayStep.instruction,
-    );
-    final info = _getManeuverInfo(direction);
-    final roadName = _extractRoadName(displayStep.instruction);
-    final shortInstruction = _getShortInstruction(displayStep.instruction);
-
-    // Upcoming step info (for the "Then" column)
-    _ManeuverInfo? nextInfo;
-    double? nextDistance;
-    if (upcomingStep != null) {
-      // The "next" after upcoming is 2 steps ahead — but we only have upcomingStep
-      // Show the upcoming step's own info in the "Then" panel
-      final nextStep = upcomingStep!;
-      final nextDir = _resolveDirection(nextStep.maneuverType, nextStep.instruction);
-      nextInfo = _getManeuverInfo(nextDir);
-      nextDistance = nextStep.distance;
-    }
-
     return ConstrainedBox(
       constraints: BoxConstraints(
         maxWidth: isLandscape ? 420 : double.infinity,
@@ -440,6 +412,7 @@ class DirectionsBanner extends StatelessWidget {
                   _buildBannerRow(
                     currentStep: currentStep!,
                     upcomingStep: upcomingStep,
+                    nextAfterUpcoming: nextAfterUpcomingStep,
                     distance: distanceToNextManeuver,
                     isDetour: false,
                     isLandscape: isLandscape,
@@ -454,33 +427,39 @@ class DirectionsBanner extends StatelessWidget {
   Widget _buildBannerRow({
     required RouteStep currentStep,
     RouteStep? upcomingStep,
+    RouteStep? nextAfterUpcoming,
     required double distance,
     required bool isDetour,
     required bool isLandscape,
   }) {
-    final maneuverDir = _resolveDirection(currentStep.maneuverType, currentStep.instruction);
+    // The banner shows the UPCOMING maneuver (what the user needs to do next).
+    // currentStep = the road segment the user is currently on
+    // upcomingStep = the maneuver at the END of the current segment
+    // If there's no upcoming step, show currentStep (e.g. last step = arrival)
+    final displayStep = upcomingStep ?? currentStep;
+    final maneuverDir = _resolveDirection(displayStep.maneuverType, displayStep.instruction);
     final info = _getManeuverInfo(maneuverDir);
 
-    final instructionParts = currentStep.instruction.split(' onto ');
+    final instructionParts = displayStep.instruction.split(' onto ');
     String shortInstruction = instructionParts[0];
     String? roadName;
     if (instructionParts.length > 1) {
       roadName = instructionParts.sublist(1).join(' onto ');
     } else {
-      final towardsParts = currentStep.instruction.split(' towards ');
+      final towardsParts = displayStep.instruction.split(' towards ');
       if (towardsParts.length > 1) {
         shortInstruction = towardsParts[0];
         roadName = towardsParts.sublist(1).join(' towards ');
       }
     }
 
+    // "Then" preview: show what comes AFTER the upcoming maneuver
     _ManeuverInfo? nextInfo;
     double? nextDistance;
-
-    if (upcomingStep != null) {
-      final nextDir = _resolveDirection(upcomingStep.maneuverType, upcomingStep.instruction);
+    if (nextAfterUpcoming != null) {
+      final nextDir = _resolveDirection(nextAfterUpcoming.maneuverType, nextAfterUpcoming.instruction);
       nextInfo = _getManeuverInfo(nextDir);
-      nextDistance = upcomingStep.distance;
+      nextDistance = nextAfterUpcoming.distance;
     }
 
     return Padding(

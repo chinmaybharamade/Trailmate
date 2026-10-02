@@ -9,7 +9,8 @@ import 'package:intl_phone_field/intl_phone_field.dart';
 
 /// Ultra-Premium register screen with deep glassmorphism and organic masking.
 class RegisterScreen extends StatefulWidget {
-  const RegisterScreen({super.key});
+  final Map<String, dynamic>? googleData;
+  const RegisterScreen({super.key, this.googleData});
 
   @override
   State<RegisterScreen> createState() => _RegisterScreenState();
@@ -73,6 +74,11 @@ class _RegisterScreenState extends State<RegisterScreen> with TickerProviderStat
     _phoneFocus.addListener(() => setState(() {}));
     _passwordFocus.addListener(() => setState(() {}));
     _confirmPasswordFocus.addListener(() => setState(() {}));
+
+    if (widget.googleData != null) {
+      _nameController.text = widget.googleData!['name'] ?? '';
+      _emailController.text = widget.googleData!['email'] ?? '';
+    }
 
     _enterController.forward();
   }
@@ -651,6 +657,7 @@ class _RegisterScreenState extends State<RegisterScreen> with TickerProviderStat
           style: ElevatedButton.styleFrom(
             backgroundColor: Colors.transparent,
             shadowColor: Colors.transparent,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           ),
           child: isLoading

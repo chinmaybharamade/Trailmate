@@ -141,4 +141,52 @@ class AuthProvider extends ChangeNotifier {
     _errorMessage = null;
     notifyListeners();
   }
+
+  /// Login with Google
+  Future<Map<String, dynamic>> loginWithGoogle() async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    final result = await _authService.loginWithGoogle();
+
+    _isLoading = false;
+
+    if (result['success'] == true) {
+      notifyListeners();
+      return result;
+    } else {
+      _errorMessage = result['error'];
+      notifyListeners();
+      return result;
+    }
+  }
+
+  /// Register with Google (requires phone and otp)
+  Future<bool> registerWithGoogle({
+    required String idToken,
+    required String phone,
+    required String otp,
+  }) async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    final result = await _authService.registerWithGoogle(
+      idToken: idToken,
+      phone: phone,
+      otp: otp,
+    );
+
+    _isLoading = false;
+
+    if (result['success'] == true) {
+      notifyListeners();
+      return true;
+    } else {
+      _errorMessage = result['error'];
+      notifyListeners();
+      return false;
+    }
+  }
 }

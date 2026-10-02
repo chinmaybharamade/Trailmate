@@ -82,7 +82,7 @@ class _LoginScreenState extends State<LoginScreen> {
               child: Column(
                 children: [
                   // Space to push form down (adjust as needed based on image)
-                  SizedBox(height: MediaQuery.of(context).size.height * 0.43),
+                  SizedBox(height: MediaQuery.of(context).size.height * 0.52),
                   
                   // Form Area
                   Padding(
@@ -200,6 +200,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                     style: ElevatedButton.styleFrom(
                                       backgroundColor: primaryGreen,
                                       foregroundColor: Colors.white,
+                                      padding: const EdgeInsets.symmetric(horizontal: 16),
                                       shape: RoundedRectangleBorder(
                                         borderRadius: BorderRadius.circular(16),
                                       ),
@@ -244,49 +245,63 @@ class _LoginScreenState extends State<LoginScreen> {
                             const SizedBox(height: 24),
                             
                             // Google Button
-                            SizedBox(
-                              height: 52,
-                              child: OutlinedButton(
-                                onPressed: () {},
-                                style: OutlinedButton.styleFrom(
-                                  side: const BorderSide(color: fieldBorderColor),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(16),
+                            Consumer<AuthProvider>(
+                              builder: (context, auth, _) {
+                                return SizedBox(
+                                  height: 52,
+                                  child: OutlinedButton(
+                                    onPressed: auth.isLoading
+                                        ? null
+                                        : () async {
+                                            final result = await auth.loginWithGoogle();
+                                            if (result['success'] == true && context.mounted) {
+                                              if (result['requiresPhone'] == true) {
+                                                Navigator.of(context).pushReplacementNamed(
+                                                  '/register',
+                                                  arguments: result['googleData'],
+                                                );
+                                              } else {
+                                                Navigator.of(context).pushReplacementNamed('/home');
+                                              }
+                                            }
+                                          },
+                                    style: OutlinedButton.styleFrom(
+                                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                                      side: const BorderSide(color: fieldBorderColor),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(16),
+                                      ),
+                                    ),
+                                    child: auth.isLoading
+                                        ? const SizedBox(
+                                            width: 24,
+                                            height: 24,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                            ),
+                                          )
+                                        : Row(
+                                            mainAxisAlignment: MainAxisAlignment.center,
+                                            children: [
+                                              Image.asset(
+                                                'assets/google_logo.png',
+                                                width: 24,
+                                                height: 24,
+                                              ),
+                                              const SizedBox(width: 12),
+                                              const Text(
+                                                'Continue with Google',
+                                                style: TextStyle(
+                                                  color: textWhite,
+                                                  fontSize: 14,
+                                                  fontWeight: FontWeight.w500,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
                                   ),
-                                ),
-                                child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    // Custom Google "G" icon using a container
-                                    Container(
-                                      width: 24,
-                                      height: 24,
-                                      decoration: const BoxDecoration(
-                                        color: Colors.white,
-                                        shape: BoxShape.circle,
-                                      ),
-                                      alignment: Alignment.center,
-                                      child: const Text(
-                                        'G',
-                                        style: TextStyle(
-                                          color: Colors.black,
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 15,
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    const Text(
-                                      'Continue with Google',
-                                      style: TextStyle(
-                                        color: textWhite,
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
+                                );
+                              }
                             ),
                             const SizedBox(height: 24),
                             
@@ -406,4 +421,5 @@ class _LoginScreenState extends State<LoginScreen> {
       },
     );
   }
+
 }

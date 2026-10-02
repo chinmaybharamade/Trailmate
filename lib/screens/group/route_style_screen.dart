@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 
 import '../../providers/auth_provider.dart';
 import '../../providers/group_provider.dart';
+import '../../providers/navigation_provider.dart';
 import '../../services/ola_maps_service.dart';
 import '../../utils/polyline_decoder.dart';
 import '../../widgets/skeleton_loader.dart';
@@ -14,6 +15,7 @@ import '../../widgets/skeleton_loader.dart';
 class RouteStyleScreen extends StatefulWidget {
   final String tripName;
   final String transportMode;
+  final String travelType;
   final PlaceModel origin;
   final PlaceModel destination;
 
@@ -21,6 +23,7 @@ class RouteStyleScreen extends StatefulWidget {
     super.key,
     required this.tripName,
     required this.transportMode,
+    required this.travelType,
     required this.origin,
     required this.destination,
   });
@@ -285,7 +288,22 @@ class _RouteStyleScreenState extends State<RouteStyleScreen> {
 
       if (mounted) {
         if (group != null) {
-          Navigator.pushNamed(context, '/group-lobby', arguments: group.id);
+          if (widget.travelType == 'solo') {
+            final navProvider = context.read<NavigationProvider>();
+            final authProvider = context.read<AuthProvider>();
+
+            if (group.isLeader(authProvider.currentUser!.id)) {
+              await groupProvider.updateStatus(group.id, 'active');
+              navProvider.wsService.startTrip(group.id);
+            }
+            
+            if (mounted) {
+              await navProvider.startNavigation(group);
+              Navigator.pushReplacementNamed(context, '/live-navigation', arguments: group.id);
+            }
+          } else {
+            Navigator.pushNamed(context, '/group-lobby', arguments: group.id);
+          }
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text(groupProvider.errorMessage ?? 'Failed to create trip')),
@@ -636,17 +654,26 @@ class _RouteStyleScreenState extends State<RouteStyleScreen> {
           borderRadius: BorderRadius.circular(24),
           boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 10, offset: Offset(0, 5))],
         ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: [
-            _buildStatItem(Icons.route_outlined, _formatDistance(_getCalculatedDistance(_selectedRouteMode)), 'Distance'),
-            _buildVerticalDivider(),
-            _buildStatItem(Icons.schedule, _formatDuration(_getCalculatedDuration(_selectedRouteMode)), 'Est. time'),
-            _buildVerticalDivider(),
-            _buildStatItem(Icons.edit_road, _mainRoad, 'Main route'),
-            _buildVerticalDivider(),
-            _buildStatItem(Icons.speed, 'Fastest', 'Less detours'),
-          ],
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _buildStatItem(Icons.route_outlined, _formatDistance(_getCalculatedDistance(_selectedRouteMode)), 'Distance'),
+              const SizedBox(width: 12),
+              _buildVerticalDivider(),
+              const SizedBox(width: 12),
+              _buildStatItem(Icons.schedule, _formatDuration(_getCalculatedDuration(_selectedRouteMode)), 'Est. time'),
+              const SizedBox(width: 12),
+              _buildVerticalDivider(),
+              const SizedBox(width: 12),
+              _buildStatItem(Icons.edit_road, _mainRoad, 'Main route'),
+              const SizedBox(width: 12),
+              _buildVerticalDivider(),
+              const SizedBox(width: 12),
+              _buildStatItem(Icons.speed, 'Fastest', 'Less detours'),
+            ],
+          ),
         ),
     );
   }
@@ -883,7 +910,7 @@ class _RouteStyleScreenState extends State<RouteStyleScreen> {
 
             // Apply Button
             Padding(
-              padding: const EdgeInsets.all(24.0),
+              padding: EdgeInsets.fromLTRB(24.0, 24.0, 24.0, 24.0 + MediaQuery.of(context).padding.bottom),
               child: SizedBox(
                 width: double.infinity,
                 height: 52,
@@ -901,7 +928,12 @@ class _RouteStyleScreenState extends State<RouteStyleScreen> {
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             SizedBox(width: 24), // Balance spacing
-                            Text('Apply Route Style', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                            Flexible(
+                              child: FittedBox(
+                                fit: BoxFit.scaleDown,
+                                child: Text('Apply Route Style', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                              ),
+                            ),
                             Icon(Icons.arrow_forward),
                           ],
                         ),
