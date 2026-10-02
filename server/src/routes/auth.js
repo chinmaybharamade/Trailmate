@@ -252,7 +252,9 @@ router.post('/dev-login', async (req, res) => {
 const GOOGLE_CLIENT_IDS = [
   process.env.GOOGLE_CLIENT_ID,                 // Web client ID
   process.env.GOOGLE_ANDROID_CLIENT_ID,          // Android client ID (if set)
-  '876773622898-0qc2ls5lc95ik9avrp4g3osp4ko4of11.apps.googleusercontent.com', // Android client ID fallback
+  '876773622898-0qc2ls5lc95ik9avrp4g3osp4ko4of11.apps.googleusercontent.com', // Debug Android Client ID
+  '876773622898-eb84c6s762vdq32pglo7l4dc9an20jv4.apps.googleusercontent.com', // Upload Android Client ID
+  '876773622898-oh27m67ig5ivq7if14oek43blehijona.apps.googleusercontent.com', // Play Store App Signing Client ID
 ].filter(Boolean);
 
 /**

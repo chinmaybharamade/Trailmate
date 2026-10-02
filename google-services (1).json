@@ -1,0 +1,63 @@
+{
+  "project_info": {
+    "project_number": "876773622898",
+    "project_id": "rouniity",
+    "storage_bucket": "rouniity.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:876773622898:android:c21ccec34049a8d3536eeb",
+        "android_client_info": {
+          "package_name": "com.vorniity.rouniity"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "876773622898-0qc2ls5lc95ik9avrp4g3osp4ko4of11.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.vorniity.rouniity",
+            "certificate_hash": "531a585307879c63c80b957a9f9c7fb942b92926"
+          }
+        },
+        {
+          "client_id": "876773622898-eb84c6s762vdq32pglo7l4dc9an20jv4.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.vorniity.rouniity",
+            "certificate_hash": "926661b74eb274a69d9756038f99f841a3d1d19e"
+          }
+        },
+        {
+          "client_id": "876773622898-oh27m67ig5ivq7if14oek43blehijona.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.vorniity.rouniity",
+            "certificate_hash": "f7a94ce386561e65b112906b458906e95f4b8d80"
+          }
+        },
+        {
+          "client_id": "876773622898-s8godvt47lb0omfnnguog8vko0bed0k6.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBpmJ5aMVCHLQudEdqFDvRnJMyTHfYkYD0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "876773622898-s8godvt47lb0omfnnguog8vko0bed0k6.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
