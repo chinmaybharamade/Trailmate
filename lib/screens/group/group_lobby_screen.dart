@@ -7,6 +7,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_map_tile_caching/flutter_map_tile_caching.dart';
 import 'dart:math' as math;
 import 'package:latlong2/latlong.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../providers/auth_provider.dart';
 import '../../providers/group_provider.dart';
@@ -15,6 +16,8 @@ import '../../core/app_colors.dart';
 import '../../core/theme.dart';
 import '../../widgets/skeleton_loader.dart';
 import '../../utils/polyline_decoder.dart';
+import '../../core/tutorial_controller.dart';
+import '../../core/tutorial_keys.dart';
 
 class GroupLobbyScreen extends StatefulWidget {
   final String groupId;
@@ -30,12 +33,23 @@ class _GroupLobbyScreenState extends State<GroupLobbyScreen> {
   bool _isDownloading = false;
   double _downloadProgress = 0.0;
   final MapController _mapController = MapController();
+  final DraggableScrollableController _sheetController = DraggableScrollableController();
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       _loadGroup();
+      if (!await TutorialController.hasCompletedTutorial()) {
+        // Expand the sheet so all tutorial items are visible
+        if (mounted) {
+          _sheetController.animateTo(0.9, duration: const Duration(milliseconds: 400), curve: Curves.easeOut);
+        }
+        await Future.delayed(const Duration(milliseconds: 500));
+      }
+      if (mounted) {
+        TutorialController.startLobbyTutorial(context);
+      }
     });
   }
 
@@ -434,6 +448,7 @@ class _GroupLobbyScreenState extends State<GroupLobbyScreen> {
 
   Widget _buildDraggableLobby(GroupModel group, bool isLeader, AppColorScheme colors, ThemeData theme) {
     return DraggableScrollableSheet(
+      controller: _sheetController,
       initialChildSize: 0.55,
       minChildSize: 0.2,
       maxChildSize: 0.9,
@@ -490,9 +505,15 @@ class _GroupLobbyScreenState extends State<GroupLobbyScreen> {
                           colors: [colors.primaryBackground, colors.primaryBackground.withValues(alpha: 0.0)],
                         ),
                       ),
-                      child: SizedBox(
-                        width: double.infinity, height: 56,
-                        child: Container(
+                      child: TutorialController.buildShowcase(
+                        key: TutorialKeys.startNavBtn,
+                        title: 'Ready to go?',
+                        description: 'Tap here to start navigation once everyone is ready',
+                        disposeOnTap: true,
+                        onTargetClick: (!isLeader && group.status != 'active') ? null : () => _startTrip(group),
+                        child: SizedBox(
+                          width: double.infinity, height: 56,
+                          child: Container(
                           decoration: BoxDecoration(
                             gradient: colors.accentGradient,
                             borderRadius: BorderRadius.circular(32),
@@ -513,6 +534,7 @@ class _GroupLobbyScreenState extends State<GroupLobbyScreen> {
                           ),
                         ),
                       ),
+                      ),
                     ),
                   ),
                 ],
@@ -525,7 +547,11 @@ class _GroupLobbyScreenState extends State<GroupLobbyScreen> {
   }
 
   Widget _buildInviteCodeCard(GroupModel group, AppColorScheme colors, ThemeData theme) {
-    return Container(
+    return TutorialController.buildShowcase(
+      key: TutorialKeys.partyCode,
+      title: 'Invite your group',
+      description: 'Share this Party Code or QR Code with your friends to join the journey',
+      child: Container(
       width: double.infinity,
       padding: const EdgeInsets.all(32),
       decoration: BoxDecoration(
@@ -558,6 +584,32 @@ class _GroupLobbyScreenState extends State<GroupLobbyScreen> {
                 const SizedBox(width: 8),
                 Text('YOUR INVITE CODE', style: theme.textTheme.labelMedium?.copyWith(color: colors.accentPrimary, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
               ],
+            ),
+          ),
+          const SizedBox(height: 32),
+          // QR Code for easy scanning
+          Center(
+            child: Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: colors.accentPrimary.withValues(alpha: 0.1),
+                    blurRadius: 20,
+                    offset: const Offset(0, 4),
+                  )
+                ]
+              ),
+              child: QrImageView(
+                data: group.inviteCode,
+                version: QrVersions.auto,
+                size: 160.0,
+                backgroundColor: Colors.white,
+                eyeStyle: QrEyeStyle(eyeShape: QrEyeShape.square, color: Colors.black),
+                dataModuleStyle: QrDataModuleStyle(dataModuleShape: QrDataModuleShape.square, color: Colors.black),
+              ),
             ),
           ),
           const SizedBox(height: 32),
@@ -607,6 +659,7 @@ class _GroupLobbyScreenState extends State<GroupLobbyScreen> {
             ],
           ),
         ],
+      ),
       ),
     );
   }
@@ -696,15 +749,20 @@ class _GroupLobbyScreenState extends State<GroupLobbyScreen> {
                         LinearProgressIndicator(value: _downloadProgress, color: colors.accentSecondary, backgroundColor: colors.borderColor),
                       ],
                     )
-                  : SizedBox(
-                      width: double.infinity,
-                      child: OutlinedButton.icon(
-                        onPressed: () => _downloadMap(group),
-                        icon: Icon(Icons.download_for_offline_rounded, color: colors.accentSecondary),
-                        label: Text('Save Map for Offline', style: TextStyle(color: colors.accentSecondary, fontWeight: FontWeight.bold)),
-                        style: OutlinedButton.styleFrom(
-                          side: BorderSide(color: colors.accentSecondary),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  : TutorialController.buildShowcase(
+                      key: TutorialKeys.offlineBtn,
+                      title: 'Offline Navigation',
+                      description: 'Download the route to keep navigating even if you lose signal',
+                      child: SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: () => _downloadMap(group),
+                          icon: Icon(Icons.download_for_offline_rounded, color: colors.accentSecondary),
+                          label: Text('Save Map for Offline', style: TextStyle(color: colors.accentSecondary, fontWeight: FontWeight.bold)),
+                          style: OutlinedButton.styleFrom(
+                            side: BorderSide(color: colors.accentSecondary),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                          ),
                         ),
                       ),
                     ),
@@ -728,9 +786,13 @@ class _GroupLobbyScreenState extends State<GroupLobbyScreen> {
 
   Widget _buildMembersList(GroupModel group, AppColorScheme colors, ThemeData theme) {
     final myId = context.read<AuthProvider>().currentUser?.id;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
+    return TutorialController.buildShowcase(
+      key: TutorialKeys.groupMembers,
+      title: 'Your group',
+      description: 'See everyone who has joined your journey',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
         Row(
           children: [
             Text('Members', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold, color: colors.textPrimary)),
@@ -801,6 +863,7 @@ class _GroupLobbyScreenState extends State<GroupLobbyScreen> {
           },
         ),
       ],
+      ),
     );
   }
 }

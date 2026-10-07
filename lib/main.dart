@@ -10,6 +10,7 @@ import 'core/app_colors.dart';
 import 'services/ola_tile_proxy.dart';
 
 import 'screens/splash_screen.dart';
+import 'screens/onboarding_screen.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/auth/register_screen.dart';
 import 'screens/home/home_screen.dart';
@@ -20,6 +21,7 @@ import 'screens/navigation/live_navigation_screen.dart';
 import 'screens/settings/feedback_screen.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter_map_tile_caching/flutter_map_tile_caching.dart';
+import 'package:showcaseview/showcaseview.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -59,10 +61,12 @@ class RoUniityApp extends StatelessWidget {
             debugShowCheckedModeBanner: false,
             theme: AppTheme.buildTheme(themeProvider.colors),
             builder: (context, child) {
-              return AnimatedTheme(
-                data: AppTheme.buildTheme(themeProvider.colors),
-                duration: Duration(milliseconds: 400),
-                child: child!,
+              return ShowCaseWidget(
+                builder: (context) => AnimatedTheme(
+                  data: AppTheme.buildTheme(themeProvider.colors),
+                  duration: const Duration(milliseconds: 400),
+                  child: child!,
+                ),
               );
             },
             initialRoute: '/',
@@ -70,6 +74,8 @@ class RoUniityApp extends StatelessWidget {
         switch (settings.name) {
           case '/':
             return MaterialPageRoute(builder: (_) => SplashScreen(), settings: settings);
+          case '/onboarding':
+            return MaterialPageRoute(builder: (_) => OnboardingScreen(), settings: settings);
           case '/login':
             return MaterialPageRoute(builder: (_) => LoginScreen(), settings: settings);
           case '/register':

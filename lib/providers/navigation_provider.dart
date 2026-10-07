@@ -142,6 +142,11 @@ class NavigationProvider extends ChangeNotifier {
   String? get activeStopCategory => _activeStopCategory;
   bool get isOffline => _isOffline;
 
+  // Live Alternative Routes
+  List<Map<String, dynamic>> _liveAlternativeRoutes = [];
+  List<Map<String, dynamic>> get liveAlternativeRoutes => _liveAlternativeRoutes;
+  Timer? _liveAlternativesTimer;
+
   final StreamController<bool> _fallSignalController = StreamController<bool>.broadcast();
   Stream<bool> get onFallSignal => _fallSignalController.stream;
 
@@ -984,8 +989,14 @@ class NavigationProvider extends ChangeNotifier {
       
       // We do not call _calculatePersonalRoute() here if the user is the leader 
       // because we want to preserve their custom start point rather than immediately
+      // because we want to preserve their custom start point rather than immediately
       // routing from their current GPS location.
     }
+
+    // Start live alternatives fetching
+    _liveAlternativesTimer?.cancel();
+    _liveAlternativesTimer = Timer.periodic(const Duration(minutes: 2), (_) => fetchLiveAlternatives());
+    fetchLiveAlternatives(); // Fetch initially too
 
     notifyListeners();
 
@@ -1102,11 +1113,13 @@ class NavigationProvider extends ChangeNotifier {
 
     try {
       final List<Map<String, double>> routeWaypoints = [];
-      if (_navigatingGroup!.route.waypoints.isNotEmpty) {
-        routeWaypoints.addAll(_navigatingGroup!.route.waypoints.map((w) => {'lat': w.lat, 'lng': w.lng}));
-      }
-      if (_navigatingGroup!.route.aiWaypoints.isNotEmpty) {
-        routeWaypoints.addAll(_navigatingGroup!.route.aiWaypoints.map((w) => {'lat': w.lat, 'lng': w.lng}));
+      if (_navigatingGroup!.isLeader(_currentUserId!)) {
+        if (_navigatingGroup!.route.waypoints.isNotEmpty) {
+          routeWaypoints.addAll(_navigatingGroup!.route.waypoints.map((w) => {'lat': w.lat, 'lng': w.lng}));
+        }
+        if (_navigatingGroup!.route.aiWaypoints.isNotEmpty) {
+          routeWaypoints.addAll(_navigatingGroup!.route.aiWaypoints.map((w) => {'lat': w.lat, 'lng': w.lng}));
+        }
       }
 
       final result = await _olaMapsService.getDirections(
@@ -1420,6 +1433,71 @@ class NavigationProvider extends ChangeNotifier {
       distanceTraveled: _totalDistanceTraveled,
       isStopped: isStopped,
     );
+  }
+
+  Future<void> fetchLiveAlternatives() async {
+    if (!_isNavigating || _navigatingGroup == null || _locationService.lastPosition == null || _isOffline) return;
+    
+    try {
+      final pos = _locationService.lastPosition!;
+      final destLat = _navigatingGroup!.route.destination.lat ?? 0;
+      final destLng = _navigatingGroup!.route.destination.lng ?? 0;
+      
+      final res = await _olaMapsService.getDirections(
+        originLat: pos.latitude,
+        originLng: pos.longitude,
+        destLat: destLat,
+        destLng: destLng,
+        mode: _runtimeTransportMode,
+        alternatives: true,
+      );
+      
+      if (res['routes'] != null && (res['routes'] as List).length > 1) {
+         _liveAlternativeRoutes = (res['routes'] as List).map((route) {
+            int duration = 0;
+            if (route['legs'] != null && route['legs'].isNotEmpty) {
+              duration = (route['legs'][0]['duration'] as num).toInt();
+            }
+            return {
+              'polyline': route['overview_polyline'] ?? route['geometry'],
+              'duration': duration,
+              'route': route, 
+            };
+         }).toList();
+         notifyListeners();
+      }
+    } catch (e) {
+      debugPrint('[Navigation] Failed to fetch live alternatives: $e');
+    }
+  }
+
+  Future<void> switchToAlternativeRoute(Map<String, dynamic> routeData) async {
+    final route = routeData['route'];
+    final polyline = route['overview_polyline'] ?? route['geometry'];
+    if (polyline != null) {
+      _routePolyline = decodePolyline(polyline);
+      _traveledPolyline = [];
+      _remainingPolyline = List.from(_routePolyline);
+      _lastPolylineSplitPosition = null;
+      
+      if (route['legs'] != null && (route['legs'] as List).isNotEmpty) {
+        _routeDistance = (route['legs'][0]['distance'] as num).toDouble();
+        _routeDuration = (route['legs'][0]['duration'] as num).toDouble();
+        
+        final rawSteps = route['legs'][0]['steps'] as List;
+        _routeSteps = rawSteps.map((s) => RouteStep.fromJson(s as Map<String, dynamic>)).toList();
+      }
+      
+      _currentStepIndex = 0;
+      _remainingDistance = _routeDistance;
+      _remainingDuration = _routeDuration;
+      
+      // Clear the live alternatives since we switched
+      _liveAlternativeRoutes.clear();
+      
+      _queueSpeak('Route updated', priority: TtsPriority.high);
+      notifyListeners();
+    }
   }
 
   @override

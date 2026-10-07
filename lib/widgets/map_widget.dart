@@ -12,6 +12,7 @@ import 'member_marker.dart';
 import 'navigation_marker.dart';
 import '../core/app_colors.dart';
 import 'suggestion_card.dart';
+import '../utils/polyline_decoder.dart';
 
 /// Reusable Map Widget wrapping flutter_map.
 ///
@@ -29,8 +30,9 @@ class TrailMapWidget extends StatefulWidget {
   final String? leaderId;
   final bool isDrivingMode;
   final double? initialRouteBearing;
-  final double deviceHeading;
   final List<AIWaypoint> aiWaypoints;
+  final double deviceHeading;
+  final List<WaypointModel> waypoints;
   final Function(AIWaypoint)? onWaypointTap;
   final List<LatLng> detourPolyline;
   final bool isDarkMode;
@@ -40,6 +42,8 @@ class TrailMapWidget extends StatefulWidget {
   final List<LatLng> sosPolyline;
   final List<NearbyPlace> nearbyPlaces;
   final Duration? animationDuration;
+  final List<Map<String, dynamic>>? liveAlternativeRoutes;
+  final Function(Map<String, dynamic>)? onAlternativeRouteSelected;
 
   TrailMapWidget({
     super.key,
@@ -56,6 +60,7 @@ class TrailMapWidget extends StatefulWidget {
     this.initialRouteBearing,
     this.deviceHeading = 0.0,
     this.aiWaypoints = const [],
+    this.waypoints = const [],
     this.onWaypointTap,
     this.detourPolyline = const [],
     this.isDarkMode = false,
@@ -65,6 +70,8 @@ class TrailMapWidget extends StatefulWidget {
     this.sosPolyline = const [],
     this.nearbyPlaces = const [],
     this.animationDuration,
+    this.liveAlternativeRoutes,
+    this.onAlternativeRouteSelected,
   });
 
   @override
@@ -279,6 +286,17 @@ class _TrailMapWidgetState extends State<TrailMapWidget> with TickerProviderStat
             if (waypointConnectors.isNotEmpty)
               PolylineLayer(polylines: waypointConnectors),
 
+            if (widget.liveAlternativeRoutes != null && widget.liveAlternativeRoutes!.isNotEmpty)
+              PolylineLayer(
+                polylines: widget.liveAlternativeRoutes!.map((r) => Polyline(
+                  points: decodePolyline(r['polyline']),
+                  color: Colors.grey.withValues(alpha: 0.7),
+                  strokeWidth: 5.0,
+                  borderStrokeWidth: 1.5,
+                  borderColor: Colors.grey.shade800,
+                )).toList(),
+              ),
+
             // Detour Polyline (yellow)
             if (widget.detourPolyline.isNotEmpty)
               PolylineLayer(
@@ -324,6 +342,23 @@ class _TrailMapWidgetState extends State<TrailMapWidget> with TickerProviderStat
                     child: Icon(Icons.flag_rounded, color: colors.accentDanger, size: 40),
                   ),
                 ],
+                ...widget.waypoints.asMap().entries.map((e) => Marker(
+                  point: LatLng(e.value.lat, e.value.lng),
+                  width: 32,
+                  height: 32,
+                  alignment: Alignment.center,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.orange, width: 2),
+                      boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4)],
+                    ),
+                    child: Center(
+                      child: Text('${e.key + 1}', style: const TextStyle(color: Colors.orange, fontWeight: FontWeight.bold, fontSize: 12)),
+                    ),
+                  ),
+                )),
                 ...widget.aiWaypoints.map((wp) => Marker(
                   point: LatLng(wp.lat, wp.lng),
                   width: 44,
@@ -377,6 +412,43 @@ class _TrailMapWidgetState extends State<TrailMapWidget> with TickerProviderStat
                     ),
                   ),
                 )),
+
+                if (widget.liveAlternativeRoutes != null)
+                  ...widget.liveAlternativeRoutes!.map((alt) {
+                    final pts = decodePolyline(alt['polyline']);
+                    if (pts.isEmpty) return Marker(point: LatLng(0,0), child: SizedBox.shrink());
+                    final midPt = pts[(pts.length * 0.5).toInt()];
+                    final mainDur = widget.routePolyline.length * 2; // rough approx
+                    final altDur = alt['duration'];
+                    final diffMin = ((altDur - mainDur) / 60.0).round();
+                    final sign = diffMin > 0 ? '+' : '';
+                    final diffText = diffMin == 0 ? 'Similar ETA' : '$sign$diffMin min';
+                    final diffColor = diffMin > 0 ? Colors.red : Colors.green;
+                    
+                    return Marker(
+                      point: midPt,
+                      width: 90,
+                      height: 45,
+                      child: GestureDetector(
+                        onTap: () => widget.onAlternativeRouteSelected?.call(alt),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: diffColor, width: 2),
+                            boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4)],
+                          ),
+                          child: Center(
+                            child: Text(
+                              diffText,
+                              style: TextStyle(color: diffColor, fontWeight: FontWeight.bold, fontSize: 13),
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  }),
 
                 ...widget.memberPositions.values.map((pos) {
                   final isMe = pos.userId == widget.currentUserId;

@@ -27,6 +27,8 @@ import 'package:in_app_review/in_app_review.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import '../../core/app_colors.dart';
 import '../../core/theme.dart';
+import '../../core/tutorial_controller.dart';
+import '../../core/tutorial_keys.dart';
 
 /// Main Live Navigation Screen
 ///
@@ -158,6 +160,11 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
           );
         }
       });
+      
+      final currentUserId = context.read<AuthProvider>().currentUser?.id;
+      final group = context.read<GroupProvider>().currentGroup;
+      final isLeader = currentUserId != null && group?.isLeader(currentUserId) == true;
+      TutorialController.startNavigationTutorial(context, isLeader: isLeader);
     });
   }
 
@@ -563,17 +570,21 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
           return Stack(
             children: [
               // 1. Map Layer — detect user pan gestures
-              GestureDetector(
-                onPanStart: (_) {
-                  if (_navState == NavigationState.active && _mapOrientation != MapOrientation.free) {
-                    setState(() {
-                      _userPannedMap = true;
-                    });
-                  }
-                },
-                child: TrailMapWidget(
-                  mapController: _mapController,
-                  initialCenter: center,
+              TutorialController.buildShowcase(
+                key: TutorialKeys.routeMap,
+                title: 'Live Map',
+                description: 'Follow the route. Pan to explore, re-center anytime',
+                child: GestureDetector(
+                  onPanStart: (_) {
+                    if (_navState == NavigationState.active && _mapOrientation != MapOrientation.free) {
+                      setState(() {
+                        _userPannedMap = true;
+                      });
+                    }
+                  },
+                  child: TrailMapWidget(
+                    mapController: _mapController,
+                    initialCenter: center,
                   routePolyline: navProvider.routePolyline,
                   traveledPolyline: navProvider.traveledPolyline,
                   remainingPolyline: navProvider.remainingPolyline,
@@ -585,10 +596,13 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
                   initialRouteBearing: navProvider.initialRouteBearing,
                   deviceHeading: _deviceHeading,
                   aiWaypoints: groupProvider.currentGroup?.route.aiWaypoints ?? [],
+                  waypoints: groupProvider.currentGroup?.route.waypoints ?? [],
                   onWaypointTap: (wp) => _showWaypointDetails(context, wp),
                   detourPolyline: navProvider.detourPolyline,
                   sosPolyline: navProvider.sosPolyline,
                   nearbyPlaces: navProvider.nearbyPlaces,
+                  liveAlternativeRoutes: navProvider.liveAlternativeRoutes,
+                  onAlternativeRouteSelected: (route) => navProvider.switchToAlternativeRoute(route),
                   isDarkMode: DateTime.now().hour >= 18 || DateTime.now().hour < 6, // Night time check
                   activeSuggestion: navProvider.activeSuggestion,
                   onSuggestionDismiss: navProvider.dismissSuggestion,
@@ -601,8 +615,8 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
                         behavior: SnackBarBehavior.floating,
                       ),
                     );
-                    // Future: implement dynamic re-routing with the new waypoint
                   },
+                ),
                 ),
               ),
 
@@ -620,17 +634,22 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
                           mainAxisSize: MainAxisSize.min,
                           crossAxisAlignment: isLand ? CrossAxisAlignment.start : CrossAxisAlignment.center,
                           children: [
-                            navProvider.isRerouting
-                                ? ReroutingBanner()
-                                : DirectionsBanner(
-                                    currentStep: navProvider.currentStep,
-                                    upcomingStep: navProvider.upcomingStep,
-                                    nextAfterUpcomingStep: navProvider.nextUpcomingStep,
-                                    distanceToNextManeuver: navProvider.distanceToNextStep,
-                                    detourCurrentStep: navProvider.detourSteps.isNotEmpty ? navProvider.detourSteps.first : null,
-                                    distanceToDetourManeuver: navProvider.detourSteps.isNotEmpty ? navProvider.detourSteps.first.distance.toDouble() : 0.0,
-                                    isLandscape: isLand,
-                                  ),
+                            TutorialController.buildShowcase(
+                              key: TutorialKeys.tbtInstructions,
+                              title: 'Navigation Instructions',
+                              description: 'Upcoming turns and maneuvers will appear here',
+                              child: navProvider.isRerouting
+                                  ? ReroutingBanner()
+                                  : DirectionsBanner(
+                                      currentStep: navProvider.currentStep,
+                                      upcomingStep: navProvider.upcomingStep,
+                                      nextAfterUpcomingStep: navProvider.nextUpcomingStep,
+                                      distanceToNextManeuver: navProvider.distanceToNextStep,
+                                      detourCurrentStep: navProvider.detourSteps.isNotEmpty ? navProvider.detourSteps.first : null,
+                                      distanceToDetourManeuver: navProvider.detourSteps.isNotEmpty ? navProvider.detourSteps.first.distance.toDouble() : 0.0,
+                                      isLandscape: isLand,
+                                    ),
+                            ),
                             // Offline Banner
                             AnimatedSize(
                               duration: const Duration(milliseconds: 300),
@@ -684,35 +703,45 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
                               // Drawer button
-                              Container(
-                                decoration: BoxDecoration(
-                                  color: colors.cardColor.withValues(alpha: 0.9),
-                                  borderRadius: BorderRadius.circular(24),
-                                  border: Border.all(color: colors.borderColor),
-                                ),
-                                child: IconButton(
-                                  icon: Icon(Icons.people_alt_rounded, color: colors.textPrimary),
-                                  onPressed: () => _scaffoldKey.currentState?.openDrawer(),
+                              TutorialController.buildShowcase(
+                                key: TutorialKeys.groupStatus,
+                                title: 'Group Status',
+                                description: 'View everyone\'s live status, speed, and distance',
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    color: colors.cardColor.withValues(alpha: 0.9),
+                                    borderRadius: BorderRadius.circular(24),
+                                    border: Border.all(color: colors.borderColor),
+                                  ),
+                                  child: IconButton(
+                                    icon: Icon(Icons.people_alt_rounded, color: colors.textPrimary),
+                                    onPressed: () => _scaffoldKey.currentState?.openDrawer(),
+                                  ),
                                 ),
                               ),
                               
                               // Exit button
-                              Container(
-                                decoration: BoxDecoration(
-                                  color: colors.cardColor.withValues(alpha: 0.9),
-                                  borderRadius: BorderRadius.circular(24),
-                                  border: Border.all(color: colors.borderColor),
-                                ),
-                                child: IconButton(
-                                  icon: Icon(Icons.close_rounded, color: colors.textPrimary),
-                                  onPressed: () {
-                                    navProvider.stopNavigation();
-                                    setState(() {
-                                      _navState = NavigationState.browsing;
-                                      _mapOrientation = MapOrientation.free;
-                                    });
-                                    Navigator.of(context).pushReplacementNamed('/home');
-                                  },
+                              TutorialController.buildShowcase(
+                                key: TutorialKeys.exitNavBtn,
+                                title: 'End Trip',
+                                description: 'Stop navigation and return to the home screen',
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    color: colors.cardColor.withValues(alpha: 0.9),
+                                    borderRadius: BorderRadius.circular(24),
+                                    border: Border.all(color: colors.borderColor),
+                                  ),
+                                  child: IconButton(
+                                    icon: Icon(Icons.close_rounded, color: colors.textPrimary),
+                                    onPressed: () {
+                                      navProvider.stopNavigation();
+                                      setState(() {
+                                        _navState = NavigationState.browsing;
+                                        _mapOrientation = MapOrientation.free;
+                                      });
+                                      Navigator.of(context).pushReplacementNamed('/home');
+                                    },
+                                  ),
                                 ),
                               ),
                             ],
@@ -791,33 +820,43 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             // SOS Button (Needs custom wrapping if we want it to match distinct FABs)
-                            Container(
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: Colors.white,
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withValues(alpha: 0.15),
-                                    blurRadius: 8,
-                                    offset: const Offset(0, 3),
-                                  )
-                                ],
-                              ),
-                              child: SosButton(
-                                isActive: navProvider.isSosActive && navProvider.sosUserId == currentUserId,
-                                onTrigger: _triggerSos,
-                                onCancel: _cancelSos,
+                            TutorialController.buildShowcase(
+                              key: TutorialKeys.sosBtn,
+                              title: 'Emergency SOS',
+                              description: 'Tap in case of emergency. It alerts your group and shares your location instantly',
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: Colors.white,
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withValues(alpha: 0.15),
+                                      blurRadius: 8,
+                                      offset: const Offset(0, 3),
+                                    )
+                                  ],
+                                ),
+                                child: SosButton(
+                                  isActive: navProvider.isSosActive && navProvider.sosUserId == currentUserId,
+                                  onTrigger: _triggerSos,
+                                  onCancel: _cancelSos,
+                                ),
                               ),
                             ),
                             SizedBox(height: 12),
                             
                             if (currentUserId != null && groupProvider.currentGroup?.isLeader(currentUserId) == true) ...[
-                              _CompactActionButton(
-                                icon: Icons.group_add_rounded,
-                                color: colors.accentPrimary,
-                                backgroundColor: Colors.white,
-                                hasShadow: true,
-                                onTap: _triggerRegroup,
+                              TutorialController.buildShowcase(
+                                key: TutorialKeys.regroupBtn,
+                                title: 'Regroup',
+                                description: 'Ask all members to navigate to your current location',
+                                child: _CompactActionButton(
+                                  icon: Icons.group_add_rounded,
+                                  color: colors.accentPrimary,
+                                  backgroundColor: Colors.white,
+                                  hasShadow: true,
+                                  onTap: _triggerRegroup,
+                                ),
                               ),
                               SizedBox(height: 12),
                             ],
@@ -841,23 +880,33 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
                             SizedBox(height: 12),
                             
                             // Compass Orientation
-                            _CompactActionButton(
-                              icon: _mapOrientation == MapOrientation.headingUp ? Icons.explore_rounded : 
-                                  (_mapOrientation == MapOrientation.northUp ? Icons.explore_off_rounded : Icons.threesixty_rounded),
-                              color: Colors.black87,
-                              backgroundColor: Colors.white,
-                              hasShadow: true,
-                              onTap: _toggleMapOrientation,
+                            TutorialController.buildShowcase(
+                              key: TutorialKeys.mapOrientBtn,
+                              title: 'Map Orientation',
+                              description: 'Toggle between North-up, Heading-up, or Free look',
+                              child: _CompactActionButton(
+                                icon: _mapOrientation == MapOrientation.headingUp ? Icons.explore_rounded : 
+                                    (_mapOrientation == MapOrientation.northUp ? Icons.explore_off_rounded : Icons.threesixty_rounded),
+                                color: Colors.black87,
+                                backgroundColor: Colors.white,
+                                hasShadow: true,
+                                onTap: _toggleMapOrientation,
+                              ),
                             ),
                             SizedBox(height: 12),
                             
                             // Center on me
-                            _CompactActionButton(
-                              icon: Icons.my_location_rounded,
-                              color: _userPannedMap ? Colors.black87 : Colors.blueAccent,
-                              backgroundColor: Colors.white,
-                              hasShadow: true,
-                              onTap: _centerOnMe,
+                            TutorialController.buildShowcase(
+                              key: TutorialKeys.centerMapBtn,
+                              title: 'Re-center Map',
+                              description: 'Snap the map back to your current location',
+                              child: _CompactActionButton(
+                                icon: Icons.my_location_rounded,
+                                color: _userPannedMap ? Colors.black87 : Colors.blueAccent,
+                                backgroundColor: Colors.white,
+                                hasShadow: true,
+                                onTap: _centerOnMe,
+                              ),
                             ),
                           ],
                         ),
@@ -995,15 +1044,19 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
                               mainAxisSize: MainAxisSize.min,
                               children: [
 
-                                TripBottomSheet(
-                                  distanceRemaining: navProvider.remainingDistance > 0 ? navProvider.remainingDistance : navProvider.routeDistance,
-                                  durationRemaining: navProvider.remainingDuration > 0 ? navProvider.remainingDuration : navProvider.routeDuration,
-                                  currentSpeed: navProvider.memberPositions[currentUserId]?.speed ?? 0,
-                                  memberPositions: navProvider.memberPositions,
-                                  currentUserId: currentUserId,
-                                  isLandscape: isLandscape,
-                                  onExit: () async {
-                                    navProvider.stopNavigation();
+                                TutorialController.buildShowcase(
+                                  key: TutorialKeys.etaBox,
+                                  title: 'Trip Progress',
+                                  description: 'Check your ETA, distance, and speed here',
+                                  child: TripBottomSheet(
+                                    distanceRemaining: navProvider.remainingDistance > 0 ? navProvider.remainingDistance : navProvider.routeDistance,
+                                    durationRemaining: navProvider.remainingDuration > 0 ? navProvider.remainingDuration : navProvider.routeDuration,
+                                    currentSpeed: navProvider.memberPositions[currentUserId]?.speed ?? 0,
+                                    memberPositions: navProvider.memberPositions,
+                                    currentUserId: currentUserId,
+                                    isLandscape: isLandscape,
+                                    onExit: () async {
+                                      navProvider.stopNavigation();
                                     setState(() {
                                        _navState = NavigationState.browsing;
                                        _mapOrientation = MapOrientation.free;
@@ -1026,6 +1079,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
                                     }
                                   },
                                   onStepsTap: () => _showStepsSheet(context),
+                                ),
                                 ),
                               ],
                             ),

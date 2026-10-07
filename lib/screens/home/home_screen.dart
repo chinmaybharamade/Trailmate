@@ -12,6 +12,9 @@ import '../../services/explore_service.dart';
 import '../../services/place_image_service.dart';
 import 'search_destinations_screen.dart';
 import 'destination_details_screen.dart';
+import '../../core/tutorial_controller.dart';
+import '../../core/tutorial_keys.dart';
+import '../../core/legal_docs.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -34,7 +37,6 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
 
-    // Kick off trending image fetches immediately, before the frame even builds
     for (final name in _trendingNames) {
       _trendingImageFutures[name] = PlaceImageService.fetchImageUrl(name);
     }
@@ -51,7 +53,10 @@ class _HomeScreenState extends State<HomeScreen> {
         navProvider.initialize(auth.token!, auth.currentUser!.id, auth.currentUser!.name);
       }
       
-      _fetchPlaces();
+      _fetchPlaces().then((_) {
+        // Start tutorial if first time
+        TutorialController.startHomeTutorial(context);
+      });
     });
   }
 
@@ -424,25 +429,25 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildSettingsList(AppColorScheme colors, AuthProvider auth) {
     return Column(
       children: [
-        _buildSettingsItem(Icons.person_outline, 'Account Settings', colors, onTap: () {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Account Settings coming soon!')));
+        _buildSettingsItem(Icons.person_outline, 'Account Settings', 'Manage your personal information', colors, onTap: () {
+          _showAccountSettings(context, auth, colors);
         }),
-        _buildSettingsItem(Icons.notifications_outlined, 'Notifications', colors, onTap: () {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Notifications coming soon!')));
+        _buildSettingsItem(Icons.notifications_outlined, 'Notifications', 'Stay updated on your trips and activity', colors, onTap: () {
+          _showNotificationSettings(context, colors);
         }),
-        _buildSettingsItem(Icons.palette_outlined, 'Appearance', colors, onTap: () => ThemeSwitcherSheet.show(context)),
-        _buildSettingsItem(Icons.shield_outlined, 'Privacy & Security', colors, onTap: () {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Privacy & Security coming soon!')));
+        _buildSettingsItem(Icons.palette_outlined, 'Appearance', 'Choose your theme and display preferences', colors, onTap: () => ThemeSwitcherSheet.show(context)),
+        _buildSettingsItem(Icons.shield_outlined, 'Privacy & Security', 'Keep your data safe', colors, onTap: () {
+          _showPrivacyPolicy(context, colors);
         }),
-        _buildSettingsItem(Icons.help_outline, 'Help & Support', colors, onTap: () {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Help & Support coming soon!')));
+        _buildSettingsItem(Icons.help_outline, 'Help & Support', 'Get help, FAQs and contact us', colors, onTap: () {
+          _showHelpAndSupport(context, colors);
         }),
-        _buildSettingsItem(Icons.feedback_outlined, 'Give Feedback', colors, onTap: () => Navigator.of(context).pushNamed('/feedback')),
+        _buildSettingsItem(Icons.feedback_outlined, 'Give Feedback', 'Help us make RoUniity better', colors, onTap: () => Navigator.of(context).pushNamed('/feedback')),
         const Padding(
           padding: EdgeInsets.symmetric(horizontal: 20),
           child: Divider(height: 32),
         ),
-        _buildSettingsItem(Icons.logout_rounded, 'Log Out', colors, color: Colors.redAccent, onTap: () async {
+        _buildSettingsItem(Icons.logout_rounded, 'Log Out', 'Sign out from your account', colors, color: Colors.redAccent, onTap: () async {
           await auth.logout();
           if (mounted) {
             Navigator.of(context).pushReplacementNamed('/');
@@ -452,27 +457,261 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildSettingsItem(IconData icon, String title, AppColorScheme colors, {Color? color, VoidCallback? onTap}) {
-    return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 4),
-      leading: Container(
-        padding: const EdgeInsets.all(8),
-        decoration: BoxDecoration(
-          color: (color ?? colors.textPrimary).withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(8),
+  Widget _buildSettingsItem(IconData icon, String title, String subtitle, AppColorScheme colors, {Color? color, VoidCallback? onTap}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
+      child: Material(
+        color: const Color(0xFF161A1E),
+        borderRadius: BorderRadius.circular(16),
+        child: InkWell(
+          onTap: onTap ?? () {},
+          borderRadius: BorderRadius.circular(16),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: (color ?? colors.accentPrimary).withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(icon, color: color ?? colors.accentPrimary, size: 24),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: color ?? colors.textPrimary,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        subtitle,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: colors.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(Icons.chevron_right_rounded, color: colors.textTertiary, size: 20),
+              ],
+            ),
+          ),
         ),
-        child: Icon(icon, color: color ?? colors.textPrimary, size: 20),
       ),
-      title: Text(
-        title,
-        style: TextStyle(
-          fontSize: 16,
-          fontWeight: FontWeight.w500,
-          color: color ?? colors.textPrimary,
+    );
+  }
+
+  void _showAccountSettings(BuildContext context, AuthProvider auth, AppColorScheme colors) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: colors.cardColor,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Account Settings', style: TextStyle(color: colors.textPrimary, fontSize: 20, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 24),
+              ListTile(
+                leading: Icon(Icons.person, color: colors.accentPrimary),
+                title: Text('Name', style: TextStyle(color: colors.textSecondary, fontSize: 14)),
+                subtitle: Text(auth.currentUser?.name ?? 'User', style: TextStyle(color: colors.textPrimary, fontSize: 16)),
+              ),
+              ListTile(
+                leading: Icon(Icons.email, color: colors.accentPrimary),
+                title: Text('Email', style: TextStyle(color: colors.textSecondary, fontSize: 14)),
+                subtitle: Text(auth.currentUser?.email ?? 'Email', style: TextStyle(color: colors.textPrimary, fontSize: 16)),
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: colors.accentPrimary,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                  ),
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  child: const Text('Close'),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
-      trailing: Icon(Icons.chevron_right_rounded, color: colors.textTertiary, size: 20),
-      onTap: onTap ?? () {},
+    );
+  }
+
+  void _showNotificationSettings(BuildContext context, AppColorScheme colors) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: colors.cardColor,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Notifications', style: TextStyle(color: colors.textPrimary, fontSize: 20, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 24),
+              SwitchListTile(
+                title: Text('Push Notifications', style: TextStyle(color: colors.textPrimary)),
+                subtitle: Text('Receive alerts about your trips', style: TextStyle(color: colors.textSecondary, fontSize: 12)),
+                value: true,
+                activeColor: colors.accentPrimary,
+                onChanged: (val) {},
+              ),
+              SwitchListTile(
+                title: Text('Email Updates', style: TextStyle(color: colors.textPrimary)),
+                subtitle: Text('Get newsletters and offers', style: TextStyle(color: colors.textSecondary, fontSize: 12)),
+                value: false,
+                activeColor: colors.accentPrimary,
+                onChanged: (val) {},
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: colors.accentPrimary,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                  ),
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  child: const Text('Done'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showPrivacyPolicy(BuildContext context, AppColorScheme colors) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: colors.cardColor,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (ctx) => SafeArea(
+        child: DraggableScrollableSheet(
+          initialChildSize: 0.8,
+          minChildSize: 0.5,
+          maxChildSize: 0.95,
+          expand: false,
+          builder: (context, scrollController) {
+            return Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Privacy & Security', style: TextStyle(color: colors.textPrimary, fontSize: 20, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 16),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      controller: scrollController,
+                      child: Text(
+                        LegalDocs.termsAndConditions,
+                        style: TextStyle(color: colors.textSecondary, fontSize: 14, height: 1.5),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: colors.accentPrimary,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                      ),
+                      onPressed: () => Navigator.of(ctx).pop(),
+                      child: const Text('Accept & Close'),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  void _showHelpAndSupport(BuildContext context, AppColorScheme colors) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: colors.cardColor,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Help & Support', style: TextStyle(color: colors.textPrimary, fontSize: 20, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 16),
+              ListTile(
+                leading: Icon(Icons.email_outlined, color: colors.accentPrimary),
+                title: Text('Contact Us', style: TextStyle(color: colors.textPrimary)),
+                subtitle: Text('services.rouniity@gmail.com', style: TextStyle(color: colors.accentPrimary)),
+                onTap: () {},
+              ),
+              ListTile(
+                leading: Icon(Icons.tour_rounded, color: colors.accentPrimary),
+                title: Text('RoUniity Tour', style: TextStyle(color: colors.textPrimary)),
+                subtitle: Text('Replay the interactive app tutorial', style: TextStyle(color: colors.textSecondary, fontSize: 12)),
+                onTap: () async {
+                  Navigator.of(ctx).pop();
+                  await TutorialController.resetTutorial();
+                  if (context.mounted) {
+                    setState(() {
+                      _bottomNavIndex = 0;
+                    });
+                    Future.delayed(const Duration(milliseconds: 300), () {
+                      if (context.mounted) {
+                        TutorialController.startHomeTutorial(context);
+                      }
+                    });
+                  }
+                },
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: TextButton(
+                  style: TextButton.styleFrom(
+                    foregroundColor: colors.textSecondary,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                  ),
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  child: const Text('Close'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -577,13 +816,17 @@ class _HomeScreenState extends State<HomeScreen> {
             children: [
               Row(
                 children: [
-                  Text(
-                    '$greeting, $name!',
-                    style: TextStyle(
-                      fontSize: 26,
-                      fontWeight: FontWeight.bold,
-                      color: colors.textPrimary,
-                      letterSpacing: -0.5,
+                  Flexible(
+                    child: Text(
+                      '$greeting, $name!',
+                      style: TextStyle(
+                        fontSize: 26,
+                        fontWeight: FontWeight.bold,
+                        color: colors.textPrimary,
+                        letterSpacing: -0.5,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
                   const SizedBox(width: 8),
@@ -662,8 +905,16 @@ class _HomeScreenState extends State<HomeScreen> {
       child: Row(
         children: [
           Expanded(
-            child: GestureDetector(
-              onTap: () => Navigator.of(context).pushNamed('/create-group'),
+            child: TutorialController.buildShowcase(
+              key: TutorialKeys.planTripBtn,
+              title: 'Plan a Trip',
+              description: 'Plan your journey — Start by choosing where you want to go',
+              disposeOnTap: true,
+              onTargetClick: () {
+                Navigator.of(context).pushNamed('/create-group');
+              },
+              child: GestureDetector(
+                onTap: () => Navigator.of(context).pushNamed('/create-group'),
               child: Container(
                 height: 140,
                 padding: const EdgeInsets.all(16),
@@ -731,11 +982,16 @@ class _HomeScreenState extends State<HomeScreen> {
                     )
                   ],
                 ),
+                ),
               ),
             ),
           ),
           const SizedBox(width: 16),
           Expanded(
+          child: TutorialController.buildShowcase(
+            key: TutorialKeys.joinTripBtn,
+            title: 'Join a Trip',
+            description: 'Enter a party code or scan a QR code to join an existing group',
             child: GestureDetector(
               onTap: () => Navigator.of(context).pushNamed('/join-group'),
               child: Container(
@@ -787,6 +1043,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
             ),
+          ),
           ),
         ],
       ),

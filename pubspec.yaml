@@ -81,6 +81,10 @@ dependencies:
   google_sign_in: ^7.2.0
   in_app_review: ^2.0.12
   wakelock_plus: ^1.4.0
+  qr_flutter: ^4.1.0
+  mobile_scanner: ^7.4.2
+  webview_flutter: ^4.10.0
+  showcaseview: ^5.1.0
 
 dev_dependencies:
   flutter_test:
@@ -110,6 +114,8 @@ flutter:
     - assets/logo_light.png
     - assets/logo_dark.png
     - assets/illustrations/
+    - assets/illustrations/slide1.svg
+    - assets/illustrations/slide2.svg
     - assets/documents/
     - assets/
 

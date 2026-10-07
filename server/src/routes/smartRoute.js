@@ -826,6 +826,27 @@ async function generateAdventureWaypoints(originLat, originLng, destLat, destLng
     }
   }
 
+  // Calculate dynamic limit based on route length
+  let routeDist = 0;
+  if (sampledPoints && sampledPoints.length > 1) {
+    for (let i = 1; i < sampledPoints.length; i++) {
+      routeDist += haversineKm(sampledPoints[i - 1].lat, sampledPoints[i - 1].lng, sampledPoints[i].lat, sampledPoints[i].lng);
+    }
+  }
+
+  let poiLimit = 30;
+  if (routeDist < 50) {
+    poiLimit = 20; // Very short trips (<50km)
+  } else if (routeDist < 150) {
+    poiLimit = 40; // Short trips (50-150km)
+  } else if (routeDist < 300) {
+    poiLimit = 60; // Mid-length trips (150-300km)
+  } else if (routeDist < 600) {
+    poiLimit = 85; // Long trips (300-600km)
+  } else {
+    poiLimit = 120; // Epic road trips (600km+)
+  }
+
   // Remove filtered entries and sort by notability
   allPlaces = allPlaces.filter(p => p.notability >= 0);
   allPlaces.sort((a, b) => b.notability - a.notability);
@@ -867,15 +888,17 @@ async function generateAdventureWaypoints(originLat, originLng, destLat, destLng
       type: wp.type,
     });
 
-    if (waypoints.length >= 100) break;
+    // Select only the top `poiLimit` most notable places across the entire route BEFORE geographically sorting them
+    if (waypoints.length >= poiLimit) break;
   }
-
-  // Removed getGenericParagraphDescription as requested.
 
   async function enrichWithRealInfo(waypoints) {
     const headers = { 'User-Agent': 'RoUniityApp/1.0 (https://github.com/rouniity; rouniity@example.com)' };
 
-    const promises = waypoints.map(async (wp) => {
+    // Limit to top 20 waypoints to prevent extreme API load and timeouts
+    const toEnrich = waypoints.slice(0, 20);
+
+    const promises = toEnrich.map(async (wp) => {
       // Fetch Image (Wikimedia Commons + Openverse)
       if (!wp.photoUrl && wp.name && wp.name !== 'Scenic Spot') {
         try {
@@ -943,16 +966,6 @@ async function generateAdventureWaypoints(originLat, originLng, destLat, destLng
           wp.reason = `Known as a ${desc}.`;
           return;
         }
-
-        // 4. Fallback to Nominatim Reverse Geocoding context
-        const nomUrl = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${wp.lat}&lon=${wp.lng}&zoom=14`;
-        const nomRes = await axios.get(nomUrl, { timeout: 3000, headers });
-        if (nomRes?.data?.address) {
-          const addr = nomRes.data.address;
-          const area = addr.city || addr.town || addr.village || addr.county || addr.state_district || 'the local area';
-          const state = addr.state || '';
-          wp.reason = `A notable point of interest located in ${area}${state ? ', ' + state : ''}.`;
-        }
       } catch (e) {
         // silently ignore API failures
       }
@@ -989,11 +1002,10 @@ async function generateAdventureWaypoints(originLat, originLng, destLat, destLng
       currentPt = nextPt;
     }
 
-    // Enrich with actual factual info from Wikipedia
+    // Enrich with actual factual info from Wikipedia (capped at 20)
     await enrichWithRealInfo(sortedWaypoints);
 
-    // Remove the fallback that uses the generic paragraphs
-
+    // Return the correctly distributed POIs
     return { waypoints: sortedWaypoints, routeCharacter: ROUTE_CHARACTERS[mode] || 'A scenic route.' };
   }
 

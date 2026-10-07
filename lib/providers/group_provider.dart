@@ -374,6 +374,7 @@ class GroupProvider extends ChangeNotifier {
     String transportMode = 'driving',
     String routeMode = 'highway',
     List<AIWaypoint>? aiWaypoints,
+    List<PlaceModel>? waypoints,
     List<dynamic>? steps,
     String? routeCharacter,
   }) async {
@@ -394,6 +395,13 @@ class GroupProvider extends ChangeNotifier {
       if (durationSeconds != null) body['durationSeconds'] = durationSeconds;
       if (aiWaypoints != null && aiWaypoints.isNotEmpty) {
         body['aiWaypoints'] = aiWaypoints.map((w) => w.toJson()).toList();
+      }
+      if (waypoints != null && waypoints.isNotEmpty) {
+        body['waypoints'] = waypoints.asMap().entries.map((e) {
+          final json = e.value.toJson();
+          json['order'] = e.key;
+          return json;
+        }).toList();
       }
       if (steps != null) body['steps'] = steps;
       if (routeCharacter != null) body['routeCharacter'] = routeCharacter;

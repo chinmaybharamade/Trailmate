@@ -20,8 +20,9 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ error: 'Group name is required' });
     }
 
-    // Generate a 6-character invite code
-    const inviteCode = nanoid(6).toUpperCase();
+    // Generate a strictly alphanumeric 6-character invite code
+    const generateInviteCode = require('nanoid').customAlphabet('0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ', 6);
+    const inviteCode = generateInviteCode();
 
     const group = new Group({
       name: name.trim(),

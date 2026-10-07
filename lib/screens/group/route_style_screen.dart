@@ -11,6 +11,8 @@ import '../../providers/navigation_provider.dart';
 import '../../services/ola_maps_service.dart';
 import '../../utils/polyline_decoder.dart';
 import '../../widgets/skeleton_loader.dart';
+import '../../core/tutorial_controller.dart';
+import '../../core/tutorial_keys.dart';
 
 class RouteStyleScreen extends StatefulWidget {
   final String tripName;
@@ -18,6 +20,7 @@ class RouteStyleScreen extends StatefulWidget {
   final String travelType;
   final PlaceModel origin;
   final PlaceModel destination;
+  final List<PlaceModel> waypoints;
 
   const RouteStyleScreen({
     super.key,
@@ -26,6 +29,7 @@ class RouteStyleScreen extends StatefulWidget {
     required this.travelType,
     required this.origin,
     required this.destination,
+    this.waypoints = const [],
   });
 
   @override
@@ -49,7 +53,7 @@ class _RouteStyleScreenState extends State<RouteStyleScreen> {
   static const List<Color> _routeColors = [
     Color(0xFF4CAF50), // Green (Main)
     Color(0xFF2196F3), // Blue
-    Color(0xFFFF9800), // Orange
+    Color(0xFF00BCD4), // Cyan (Replaced Orange for better day/night visibility)
     Color(0xFF9C27B0), // Purple
     Color(0xFFE91E63), // Pink
   ];
@@ -77,6 +81,7 @@ class _RouteStyleScreenState extends State<RouteStyleScreen> {
     _generateMockSpots();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _fetchBaseRoute();
+      TutorialController.startRouteStyleTutorial(context);
     });
   }
 
@@ -100,8 +105,9 @@ class _RouteStyleScreenState extends State<RouteStyleScreen> {
         originLng: widget.origin.lng!,
         destLat: widget.destination.lat!,
         destLng: widget.destination.lng!,
+        waypoints: widget.waypoints.isNotEmpty ? widget.waypoints.map((w) => {'lat': w.lat!, 'lng': w.lng!}).toList() : null,
         mode: widget.transportMode,
-        alternatives: true,
+        alternatives: widget.waypoints.isEmpty,
       );
       
       if (dir['routes'] != null && (dir['routes'] as List).isNotEmpty) {
@@ -243,7 +249,10 @@ class _RouteStyleScreenState extends State<RouteStyleScreen> {
             originLng: widget.origin.lng!,
             destLat: widget.destination.lat!,
             destLng: widget.destination.lng!,
-            waypoints: waypointsList,
+            waypoints: [
+              ...widget.waypoints.map((w) => {'lat': w.lat!, 'lng': w.lng!}),
+              ...waypointsList,
+            ],
             mode: widget.transportMode,
           );
           if (res['routes'] != null && res['routes'].isNotEmpty) {
@@ -274,6 +283,7 @@ class _RouteStyleScreenState extends State<RouteStyleScreen> {
         name: widget.tripName,
         origin: widget.origin,
         destination: widget.destination,
+        waypoints: widget.waypoints,
         transportMode: widget.transportMode,
         routeMode: _selectedRouteMode,
         polyline: polyline,
@@ -533,7 +543,7 @@ class _RouteStyleScreenState extends State<RouteStyleScreen> {
                 final wp = e.value;
                 final isSelected = _selectedPoiIndices.contains(index);
                 return Marker(
-                  point: LatLng(wp['lat'], wp['lng']),
+                  point: LatLng((wp['lat'] as num).toDouble(), (wp['lng'] as num).toDouble()),
                   width: 32,
                   height: 32,
                   child: GestureDetector(
@@ -576,6 +586,13 @@ class _RouteStyleScreenState extends State<RouteStyleScreen> {
               alignment: Alignment.topCenter,
               child: _buildLocationMarker(widget.destination.name, isOrigin: false),
             ),
+            ...widget.waypoints.asMap().entries.map((e) => Marker(
+              point: LatLng(e.value.lat!, e.value.lng!),
+              width: 160,
+              height: 100,
+              alignment: Alignment.topCenter,
+              child: _buildLocationMarker(e.value.name, isOrigin: false, index: e.key + 1),
+            )),
           ],
         ),
       ],
@@ -599,7 +616,7 @@ class _RouteStyleScreenState extends State<RouteStyleScreen> {
     );
   }
 
-  Widget _buildLocationMarker(String name, {required bool isOrigin}) {
+  Widget _buildLocationMarker(String name, {required bool isOrigin, int? index}) {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -615,17 +632,29 @@ class _RouteStyleScreenState extends State<RouteStyleScreen> {
           ),
         ),
         const SizedBox(height: 4),
-        isOrigin 
-            ? Container(
-                width: 16, height: 16,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  shape: BoxShape.circle,
-                  border: Border.all(color: const Color(0xFF4CAF50), width: 4),
-                  boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4)],
-                ),
-              )
-            : const Icon(Icons.location_on, color: Color(0xFF4CAF50), size: 28, shadows: [Shadow(color: Colors.black26, blurRadius: 4)]),
+        if (index != null)
+          Container(
+            width: 24, height: 24,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.orange, width: 3),
+              boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4)],
+            ),
+            child: Center(child: Text('$index', style: const TextStyle(color: Colors.orange, fontWeight: FontWeight.bold, fontSize: 10))),
+          )
+        else if (isOrigin)
+          Container(
+            width: 16, height: 16,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              shape: BoxShape.circle,
+              border: Border.all(color: const Color(0xFF4CAF50), width: 4),
+              boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4)],
+            ),
+          )
+        else
+          const Icon(Icons.location_on, color: Color(0xFF4CAF50), size: 28, shadows: [Shadow(color: Colors.black26, blurRadius: 4)]),
       ],
     );
   }
@@ -807,13 +836,17 @@ class _RouteStyleScreenState extends State<RouteStyleScreen> {
             if (_isStylesExpanded) const SizedBox(height: 16),
 
             // Horizontal Style Cards
-            if (_isStylesExpanded) SizedBox(
-              height: 210,
-              child: ListView(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                physics: const BouncingScrollPhysics(),
-                children: [
+            if (_isStylesExpanded) TutorialController.buildShowcase(
+              key: TutorialKeys.routeStyles,
+              title: 'Choose your route style',
+              description: 'Select Highway for speed, or Adventure for scenic views',
+              child: SizedBox(
+                height: 210,
+                child: ListView(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  physics: const BouncingScrollPhysics(),
+                  children: [
                   _buildStyleOptionCard(
                     id: 'highway',
                     title: 'Highway',
@@ -897,6 +930,7 @@ class _RouteStyleScreenState extends State<RouteStyleScreen> {
                 ],
               ),
             ),
+            ),
             
 
             if (_styleWaypoints != null && _styleWaypoints!.isNotEmpty) ...[
@@ -911,10 +945,16 @@ class _RouteStyleScreenState extends State<RouteStyleScreen> {
             // Apply Button
             Padding(
               padding: EdgeInsets.fromLTRB(24.0, 24.0, 24.0, 24.0 + MediaQuery.of(context).padding.bottom),
-              child: SizedBox(
-                width: double.infinity,
-                height: 52,
-                child: ElevatedButton(
+              child: TutorialController.buildShowcase(
+                key: TutorialKeys.createTripBtn,
+                title: 'Create your trip',
+                description: 'You\'re the trip captain. Tap to create!',
+                disposeOnTap: true,
+                onTargetClick: _isCreating ? null : _createTrip,
+                child: SizedBox(
+                  width: double.infinity,
+                  height: 52,
+                  child: ElevatedButton(
                   onPressed: _isCreating ? null : _createTrip,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF1E5B33), // Deep green from mockup
@@ -938,6 +978,7 @@ class _RouteStyleScreenState extends State<RouteStyleScreen> {
                           ],
                         ),
                 ),
+              ),
               ),
             ),
           ],

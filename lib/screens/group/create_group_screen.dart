@@ -12,6 +12,8 @@ import '../../services/ola_maps_service.dart';
 import '../../services/location_service.dart';
 import '../../utils/polyline_decoder.dart';
 import '../../widgets/skeleton_loader.dart';
+import '../../core/tutorial_controller.dart';
+import '../../core/tutorial_keys.dart';
 import 'route_style_screen.dart';
 
 class CreateGroupScreen extends StatefulWidget {
@@ -28,12 +30,16 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
 
   final _fromFocus = FocusNode();
   final _toFocus = FocusNode();
+  
+  final List<TextEditingController> _stopControllers = [];
+  final List<FocusNode> _stopFocuses = [];
 
   final OlaMapsService _mapsService = OlaMapsService();
   String _selectedMode = 'driving';
   String _travelType = 'group';
   bool _isGeocoding = false;
   bool _isLoadingRoute = false;
+  List<PlaceModel> _previewWaypoints = [];
 
   // Live route data — populated after geocoding
   LatLng? _originLatLng;
@@ -51,6 +57,10 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
     super.initState();
     _fromFocus.addListener(() => setState(() {}));
     _toFocus.addListener(() => setState(() {}));
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      TutorialController.startCreateTripTutorial(context);
+    });
   }
 
   @override
@@ -76,6 +86,8 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
     _tripNameController.dispose();
     _fromFocus.dispose();
     _toFocus.dispose();
+    for (var c in _stopControllers) { c.dispose(); }
+    for (var f in _stopFocuses) { f.dispose(); }
     super.dispose();
   }
 
@@ -104,6 +116,13 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
 
       final origin = await _resolveLocation(_fromController.text.trim());
       final destination = await _resolveLocation(_toController.text.trim());
+      
+      List<PlaceModel> waypoints = [];
+      for (var c in _stopControllers) {
+        if (c.text.trim().isNotEmpty) {
+          waypoints.add(await _resolveLocation(c.text.trim()));
+        }
+      }
 
       if (origin.lat != null && origin.lng != null && destination.lat != null && destination.lng != null && mounted) {
         String oLabel = origin.name;
@@ -121,10 +140,13 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
             originLng: origin.lng!,
             destLat: destination.lat!,
             destLng: destination.lng!,
+            waypoints: waypoints.isNotEmpty ? waypoints.map((w) => {'lat': w.lat!, 'lng': w.lng!}).toList() : null,
             mode: _selectedMode == 'walking' ? 'walking' : _selectedMode == 'two_wheeler' ? 'motorcycle' : 'driving',
-            alternatives: true,
+            alternatives: waypoints.isEmpty,
           );
           
+          if (mounted) setState(() => _previewWaypoints = waypoints);
+
           if (routeData['routes']?.isNotEmpty == true) {
             final leg = routeData['routes'][0]['legs'][0];
             final distMeters = leg['distance'] ?? 0;
@@ -183,6 +205,13 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
 
       final origin = await _resolveLocation(_fromController.text.trim());
       final destination = await _resolveLocation(_toController.text.trim());
+      
+      List<PlaceModel> waypoints = [];
+      for (var c in _stopControllers) {
+        if (c.text.trim().isNotEmpty) {
+          waypoints.add(await _resolveLocation(c.text.trim()));
+        }
+      }
 
       if (mounted) setState(() => _isGeocoding = false);
 
@@ -202,6 +231,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
             travelType: _travelType,
             origin: origin,
             destination: destination,
+            waypoints: waypoints,
           ),
         ));
       } else {
@@ -472,24 +502,68 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
             onPressed: () => _useCurrentLocation(_fromController),
           ),
         ),
-        const SizedBox(height: 12),
-        _buildLocationInput(
-          controller: _toController,
-          focusNode: _toFocus,
-          label: 'Destination',
-          hint: 'e.g. Udupi, Karnataka',
-          prefixIcon: Icons.location_on_rounded,
-          prefixColor: Colors.red,
-          colors: colors,
-          trailing: IconButton(
-            icon: Icon(Icons.swap_vert_rounded, color: colors.textSecondary, size: 22),
-            onPressed: () {
-              final temp = _fromController.text;
-              _fromController.text = _toController.text;
-              _toController.text = temp;
-              _geocodeAndPreview();
-            },
+        for (int i = 0; i < _stopControllers.length; i++) ...[
+          const SizedBox(height: 12),
+          _buildLocationInput(
+            controller: _stopControllers[i],
+            focusNode: _stopFocuses[i],
+            label: 'Stop ${i + 1}',
+            hint: 'e.g. Stop Location',
+            prefixIcon: Icons.stop_circle_outlined,
+            prefixColor: Colors.orange,
+            colors: colors,
+            trailing: IconButton(
+              icon: Icon(Icons.remove_circle_outline, color: Colors.red.shade400, size: 22),
+              onPressed: () {
+                setState(() {
+                  _stopControllers[i].dispose();
+                  _stopFocuses[i].dispose();
+                  _stopControllers.removeAt(i);
+                  _stopFocuses.removeAt(i);
+                });
+                _geocodeAndPreview();
+              },
+            ),
           ),
+        ],
+        const SizedBox(height: 12),
+        TutorialController.buildShowcase(
+          key: TutorialKeys.searchField,
+          title: 'Choose your destination',
+          description: 'Search for where your group is heading',
+          disposeOnTap: true,
+          child: _buildLocationInput(
+            controller: _toController,
+            focusNode: _toFocus,
+            label: 'Destination',
+            hint: 'e.g. Udupi, Karnataka',
+            prefixIcon: Icons.location_on_rounded,
+            prefixColor: Colors.red,
+            colors: colors,
+            trailing: IconButton(
+              icon: Icon(Icons.swap_vert_rounded, color: colors.textSecondary, size: 22),
+              onPressed: () {
+                final temp = _fromController.text;
+                _fromController.text = _toController.text;
+                _toController.text = temp;
+                _geocodeAndPreview();
+              },
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        TextButton.icon(
+          onPressed: () {
+            setState(() {
+              final newController = TextEditingController();
+              final newFocus = FocusNode();
+              newFocus.addListener(() => setState(() {}));
+              _stopControllers.add(newController);
+              _stopFocuses.add(newFocus);
+            });
+          },
+          icon: Icon(Icons.add_location_alt_rounded, color: colors.accentPrimary),
+          label: Text('Add Stop', style: TextStyle(color: colors.accentPrimary, fontWeight: FontWeight.bold)),
         ),
         if (_originLatLng != null && _destLatLng != null) ...[
           const SizedBox(height: 16),
@@ -1060,6 +1134,21 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                         point: _destLatLng!,
                         child: const Icon(Icons.location_on, color: Colors.red, size: 40),
                       ),
+                      ..._previewWaypoints.asMap().entries.map((e) => Marker(
+                        point: LatLng(e.value.lat!, e.value.lng!),
+                        width: 32,
+                        height: 32,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.orange, width: 2),
+                          ),
+                          child: Center(
+                            child: Text('${e.key + 1}', style: const TextStyle(color: Colors.orange, fontWeight: FontWeight.bold, fontSize: 12)),
+                          ),
+                        ),
+                      )),
                     ],
                   ),
                 ],

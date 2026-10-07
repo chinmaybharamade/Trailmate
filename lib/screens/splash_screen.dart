@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import '../core/app_colors.dart';
 import 'package:in_app_update/in_app_update.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Redesigned Splash Screen with Fluid Choreography
 class SplashScreen extends StatefulWidget {
@@ -111,7 +112,13 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
     await _controller.reverse(from: 1.0);
     
     if (!mounted) return;
-    if (authProvider.isLoggedIn) {
+
+    final prefs = await SharedPreferences.getInstance();
+    final hasSeenOnboarding = prefs.getBool('has_seen_onboarding') ?? false;
+
+    if (!hasSeenOnboarding) {
+      Navigator.of(context).pushReplacementNamed('/onboarding');
+    } else if (authProvider.isLoggedIn) {
       Navigator.of(context).pushReplacementNamed('/home');
     } else {
       Navigator.of(context).pushReplacementNamed('/login');
